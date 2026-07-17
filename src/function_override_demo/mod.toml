@@ -1,0 +1,8 @@
+manifest_version = 2
+name = "Function Override Demo"
+version = "1.0.1"
+game_version = "1.3.0"
+author = "NocturneRecomp"
+description = "Worked example of overriding a recompiled guest function at runtime (not just data), wrapping the leaderboard write path with a log line and calling through to the original."
+code = "function_override_demo"
+requires = "game_symbols >= 1.0.0"

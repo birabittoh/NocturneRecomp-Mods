@@ -1,0 +1,8 @@
+manifest_version = 2
+name = "UI Color Picker"
+version = "1.0.1"
+game_version = "1.3.0"
+author = "BiRabittoh"
+description = "Overlay (F7) with a color picker for the UI accent color, synced live with game memory."
+code = "ui_color"
+requires = "game_symbols >= 1.0.0"
