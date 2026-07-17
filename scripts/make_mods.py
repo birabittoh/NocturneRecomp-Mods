@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
 """Builds every mod under src/ and assembles it into mods/<name>/.
 
-Each src/<name>/ directory is a standalone CMake project (its own
+A src/<name>/ directory with no CMakeLists.txt is an asset-only mod (game
+file/texture/shader replacements, no native code) -- see NocturneRecomp's
+docs/making-mods.md. It's copied into mods/<name>/ as-is, once, with no
+per-platform build step and no `platform` key written into its mod.toml.
+
+Each src/<name>/ directory that *does* have a CMakeLists.txt is a standalone
+CMake project (its own
 CMakeLists.txt including src/common/mod_cmake/rexmod.cmake) that links
 against the SDK's rex::runtime, found via CMAKE_PREFIX_PATH pointing at an
 SDK directory. The resulting binary is copied to
@@ -272,6 +278,12 @@ def build_targets_via_docker(plat, names, root, sdk_dir):
     ])
 
 
+def copy_asset_mod(mod_src_dir, name, root):
+    dest_dir = os.path.join(root, "mods", name)
+    print(f"+ cp -r {mod_src_dir} {dest_dir}")
+    shutil.copytree(mod_src_dir, dest_dir, dirs_exist_ok=True)
+
+
 def package_mod(name, root):
     import zipfile
 
@@ -312,52 +324,64 @@ def main():
         print(f"error: {src_dir} not found", file=sys.stderr)
         sys.exit(1)
 
-    all_mods = sorted(
+    all_src_dirs = sorted(
         name for name in os.listdir(src_dir)
-        if name != "common" and os.path.isfile(os.path.join(src_dir, name, "CMakeLists.txt"))
+        if name != "common" and os.path.isdir(os.path.join(src_dir, name))
     )
+    code_mods = [name for name in all_src_dirs
+                 if os.path.isfile(os.path.join(src_dir, name, "CMakeLists.txt"))]
+    asset_mods = [name for name in all_src_dirs
+                  if name not in code_mods and os.path.isfile(os.path.join(src_dir, name, "mod.toml"))]
+    all_mods = sorted(code_mods + asset_mods)
+
     mod_names = args.mod or all_mods
     unknown = [name for name in mod_names if name not in all_mods]
     if unknown:
         print(f"error: unknown mod(s) {unknown}; available: {all_mods}", file=sys.stderr)
         sys.exit(1)
+    code_names = [name for name in mod_names if name in code_mods]
+    asset_names = [name for name in mod_names if name in asset_mods]
+
+    for name in asset_names:
+        copy_asset_mod(os.path.join(src_dir, name), name, root)
 
     host = host_plat()
     platforms = args.targets or ([host] if host else [])
-    if not platforms:
+    if code_names and not platforms:
         print("error: couldn't detect a native platform for this host -- pass --target explicitly",
               file=sys.stderr)
         sys.exit(1)
 
-    for plat in platforms:
-        print(f"\n=== Platform: {plat} ===")
+    if code_names:
+        for plat in platforms:
+            print(f"\n=== Platform: {plat} ===")
 
-        sdk_root = args.sdk_dir.replace("\\", "/").rstrip("/")
-        sdk_dir = f"{sdk_root}/{PLATFORM_INFO[plat]['sdk_subdir']}"
+            sdk_root = args.sdk_dir.replace("\\", "/").rstrip("/")
+            sdk_dir = f"{sdk_root}/{PLATFORM_INFO[plat]['sdk_subdir']}"
 
-        if plat == host:
-            sdk_dir = resolve_native_sdk_dir(sdk_root, sdk_dir, plat)
-            require_sdk(sdk_dir, plat)
-            cxx_compiler = find_clangxx()
-            for name in mod_names:
-                mod_src_dir = os.path.join(src_dir, name)
-                print(f"\n--- Building mod '{name}' natively for {plat} ---")
-                binary = build_mod_native(mod_src_dir, name, sdk_dir, cxx_compiler, root, plat)
-                assemble_mod(mod_src_dir, name, binary, plat, root)
+            if plat == host:
+                sdk_dir = resolve_native_sdk_dir(sdk_root, sdk_dir, plat)
+                require_sdk(sdk_dir, plat)
+                cxx_compiler = find_clangxx()
+                for name in code_names:
+                    mod_src_dir = os.path.join(src_dir, name)
+                    print(f"\n--- Building mod '{name}' natively for {plat} ---")
+                    binary = build_mod_native(mod_src_dir, name, sdk_dir, cxx_compiler, root, plat)
+                    assemble_mod(mod_src_dir, name, binary, plat, root)
 
-        elif plat == "windows-x64" and can_cross_build_windows_locally():
-            require_sdk(sdk_dir, plat)
-            for name in mod_names:
-                mod_src_dir = os.path.join(src_dir, name)
-                print(f"\n--- Cross-building mod '{name}' for windows-x64 (clang-cl + xwin) ---")
-                binary = build_mod_windows_cross(mod_src_dir, name, sdk_dir, root)
-                assemble_mod(mod_src_dir, name, binary, plat, root)
+            elif plat == "windows-x64" and can_cross_build_windows_locally():
+                require_sdk(sdk_dir, plat)
+                for name in code_names:
+                    mod_src_dir = os.path.join(src_dir, name)
+                    print(f"\n--- Cross-building mod '{name}' for windows-x64 (clang-cl + xwin) ---")
+                    binary = build_mod_windows_cross(mod_src_dir, name, sdk_dir, root)
+                    assemble_mod(mod_src_dir, name, binary, plat, root)
 
-        else:
-            print(f"host can't build '{plat}' directly -- falling back to Docker")
-            build_targets_via_docker(plat, mod_names, root, sdk_dir)
+            else:
+                print(f"host can't build '{plat}' directly -- falling back to Docker")
+                build_targets_via_docker(plat, code_names, root, sdk_dir)
 
-    for name in mod_names:
+    for name in code_names:
         mod_src_dir = os.path.join(src_dir, name)
         built = built_platforms_for_mod(root, name)
         update_mod_platform_field(src_dir, name, built)

@@ -7,18 +7,8 @@ on:
         description: "'artifact' for CI workflow-artifact, 'release' for GitHub release"
         required: true
         type: string
-      artifact_name:
-        description: "Artifact name prefix when publish_mode is 'artifact'"
-        required: false
-        type: string
-        default: ""
       mod_artifact_suffix:
         description: "Suffix appended to each per-mod artifact name, e.g. '-<short-sha>'"
-        required: false
-        type: string
-        default: ""
-      tag:
-        description: "Release tag to embed in release zip filenames"
         required: false
         type: string
         default: ""
@@ -113,17 +103,11 @@ jobs:
         id: merge
         shell: bash
         run: |
-          if [ "${{ inputs.publish_mode }}" = "artifact" ]; then
-            prefix="${{ inputs.artifact_name }}-"
-          else
-            prefix="nocturnerecomp-mods-${{ inputs.tag }}-"
-          fi
           python scripts/merge_and_package.py \
             --input raw/raw-mods-windows-x64 \
             --input raw/raw-mods-linux-x64 \
             --input raw/raw-mods-linux-arm64 \
             --output pkg \
-            --prefix "$prefix" \
             --write-mod-list mods.json \
             --merged-output merged
           echo "mods=$(cat mods.json)" >> "$GITHUB_OUTPUT"

@@ -13,6 +13,7 @@ get packaged, just with fewer platform subdirectories.
 import argparse
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -20,6 +21,21 @@ import zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from make_mods import PLATFORM_INFO, update_mod_platform_field  # noqa: E402
+
+VERSION_PATTERN = re.compile(r'^\s*version\s*=\s*"([^"]*)"')
+
+
+def mod_version(mod_dir):
+    manifest_path = os.path.join(mod_dir, "mod.toml")
+    if not os.path.isfile(manifest_path):
+        return None
+    with open(manifest_path, "r", encoding="utf-8") as f:
+        for line in f:
+            m = VERSION_PATTERN.match(line)
+            if m:
+                value = m.group(1).strip()
+                return value if value.startswith("v") else f"v{value}"
+    return None
 
 
 def merge_mod(mod_name, input_dirs, merge_root):
@@ -38,17 +54,21 @@ def merge_mod(mod_name, input_dirs, merge_root):
     # Each input's mod.toml only lists the one platform that CI leg built, so
     # whichever --input was merged in last just clobbered the others' platform
     # value. Recompute it from the union of platform subdirs actually present
-    # under the merged code/ dir.
+    # under the merged code/ dir. Asset-only mods have no code/ dir at all and
+    # don't carry a `platform` key -- leave those alone.
     code_dir = os.path.join(dest, "code")
-    built = [info["manifest_key"] for info in PLATFORM_INFO.values()
-             if os.path.isdir(os.path.join(code_dir, info["manifest_key"]))]
-    update_mod_platform_field(merge_root, mod_name, built)
+    if os.path.isdir(code_dir):
+        built = [info["manifest_key"] for info in PLATFORM_INFO.values()
+                 if os.path.isdir(os.path.join(code_dir, info["manifest_key"]))]
+        update_mod_platform_field(merge_root, mod_name, built)
     return dest
 
 
-def zip_mod(mod_dir, mod_name, output_dir, prefix):
+def zip_mod(mod_dir, mod_name, output_dir):
     os.makedirs(output_dir, exist_ok=True)
-    archive_path = os.path.join(output_dir, f"{prefix}{mod_name}.zip")
+    version = mod_version(mod_dir)
+    stem = f"{mod_name}-{version}" if version else mod_name
+    archive_path = os.path.join(output_dir, f"{stem}.zip")
     with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED) as zf:
         for dirpath, _dirnames, filenames in os.walk(mod_dir):
             for fname in filenames:
@@ -63,9 +83,8 @@ def main():
                                       formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--input", action="append", required=True, dest="inputs",
                         help="A platform's built mods/ dir (repeatable, one per platform)")
-    parser.add_argument("--output", required=True, help="Directory to write <mod>.zip files to")
-    parser.add_argument("--prefix", default="", help="Filename prefix before <mod>.zip, e.g. "
-                                                       "'nocturnerecomp-mods-v1.2.3-'")
+    parser.add_argument("--output", required=True, help="Directory to write <mod>-<version>.zip "
+                                                          "files to")
     parser.add_argument("--write-mod-list", help="Also write a JSON array of built mod names to "
                                                    "this path (e.g. for a CI matrix step)")
     parser.add_argument("--merged-output", help="Also copy each mod's merged, unzipped directory "
@@ -90,7 +109,7 @@ def main():
     with tempfile.TemporaryDirectory() as merge_root:
         for name in mod_names:
             mod_dir = merge_mod(name, args.inputs, merge_root)
-            zip_mod(mod_dir, name, args.output, args.prefix)
+            zip_mod(mod_dir, name, args.output)
             if args.merged_output:
                 shutil.copytree(mod_dir, os.path.join(args.merged_output, name))
 
