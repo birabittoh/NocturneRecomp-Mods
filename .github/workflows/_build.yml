@@ -12,6 +12,11 @@ on:
         required: false
         type: string
         default: ""
+      mod_artifact_suffix:
+        description: "Suffix appended to each per-mod artifact name, e.g. '-<short-sha>'"
+        required: false
+        type: string
+        default: ""
       tag:
         description: "Release tag to embed in release zip filenames"
         required: false
@@ -119,18 +124,22 @@ jobs:
             --input raw/raw-mods-linux-arm64 \
             --output pkg \
             --prefix "$prefix" \
-            --write-mod-list mods.json
+            --write-mod-list mods.json \
+            --merged-output merged
           echo "mods=$(cat mods.json)" >> "$GITHUB_OUTPUT"
 
       # A temporary staging artifact so the per-mod matrix job below (which
-      # runs in fresh runners) can get at pkg/*.zip. Deleted by the cleanup
-      # job once every per-mod artifact has been split out of it.
+      # runs in fresh runners) can get at each mod's merged, unzipped tree.
+      # Raw dirs, not pkg/*.zip -- upload-artifact zips whatever it's given,
+      # so re-uploading an already-zipped file produces a zip-of-a-zip.
+      # Deleted by the cleanup job once every per-mod artifact has been
+      # split out of it.
       - name: Upload staging artifact
         if: inputs.publish_mode == 'artifact'
         uses: actions/upload-artifact@v4
         with:
           name: pkg-staging-${{ github.run_id }}
-          path: pkg/
+          path: merged/
           if-no-files-found: error
           retention-days: 1
 
@@ -155,13 +164,23 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: pkg-staging-${{ github.run_id }}
-          path: pkg
+          path: merged
+
+      # upload-artifact zips whatever directory `path:` points at, but drops
+      # that directory's own name from the archive -- pointing straight at
+      # merged/<mod> would produce a zip whose files sit at the root instead
+      # of under a <mod>/ folder. Wrapping it one level deeper so the mod
+      # name is a *child* of the upload root is what makes it survive.
+      - name: Stage ${{ matrix.mod }} under its own folder
+        run: |
+          mkdir -p "stage/${{ matrix.mod }}"
+          mv "merged/${{ matrix.mod }}" "stage/${{ matrix.mod }}/${{ matrix.mod }}"
 
       - name: Upload ${{ matrix.mod }}
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.mod }}
-          path: pkg/${{ inputs.artifact_name }}-${{ matrix.mod }}.zip
+          name: ${{ matrix.mod }}${{ inputs.mod_artifact_suffix }}
+          path: stage/${{ matrix.mod }}
           if-no-files-found: error
 
   cleanup:

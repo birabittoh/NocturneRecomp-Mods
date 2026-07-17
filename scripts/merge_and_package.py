@@ -68,6 +68,9 @@ def main():
                                                        "'nocturnerecomp-mods-v1.2.3-'")
     parser.add_argument("--write-mod-list", help="Also write a JSON array of built mod names to "
                                                    "this path (e.g. for a CI matrix step)")
+    parser.add_argument("--merged-output", help="Also copy each mod's merged, unzipped directory "
+                                                  "tree here as <merged-output>/<mod>/ (e.g. for "
+                                                  "uploading raw, not pre-zipped, CI artifacts)")
     args = parser.parse_args()
 
     for d in args.inputs:
@@ -88,6 +91,8 @@ def main():
         for name in mod_names:
             mod_dir = merge_mod(name, args.inputs, merge_root)
             zip_mod(mod_dir, name, args.output, args.prefix)
+            if args.merged_output:
+                shutil.copytree(mod_dir, os.path.join(args.merged_output, name))
 
     if args.write_mod_list:
         with open(args.write_mod_list, "w", encoding="utf-8") as f:

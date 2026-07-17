@@ -27,4 +27,5 @@ jobs:
     with:
       publish_mode: artifact
       artifact_name: nocturnerecomp-mods-${{ needs.prepare.outputs.date_hhmm }}-${{ needs.prepare.outputs.short_sha }}
+      mod_artifact_suffix: -${{ needs.prepare.outputs.short_sha }}
     secrets: inherit
