@@ -17,8 +17,9 @@ namespace {
 class SampleOverlayDialog : public rex::ui::ImGuiDialog {
  public:
   explicit SampleOverlayDialog(rex::ui::ImGuiDrawer* drawer) : ImGuiDialog(drawer) {
-    rex::ui::RegisterBind("bind_sample_overlay", "F9", "Toggle sample overlay",
-                          [this] { visible_ = !visible_; });
+    rex::ui::RegisterBind(
+        "bind_sample_overlay", "F9", "Toggle sample overlay", [this] { visible_ = !visible_; },
+        [this] { return visible_; });
   }
 
   ~SampleOverlayDialog() override { rex::ui::UnregisterBind("bind_sample_overlay"); }

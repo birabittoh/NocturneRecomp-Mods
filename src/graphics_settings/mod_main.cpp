@@ -264,8 +264,9 @@ class GraphicsSettingsDialog : public rex::ui::ImGuiDialog {
  public:
   GraphicsSettingsDialog(rex::ui::ImGuiDrawer* drawer, rex::Runtime* runtime)
       : ImGuiDialog(drawer), runtime_(runtime) {
-    rex::ui::RegisterBind("bind_graphics_settings", "F6", "Toggle graphics settings overlay",
-                          [this] { visible_ = !visible_; });
+    rex::ui::RegisterBind(
+        "bind_graphics_settings", "F6", "Toggle graphics settings overlay", [this] { visible_ = !visible_; },
+        [this] { return visible_; }, "Graphics Settings");
     // Reasserts the last-requested stretch every guest frame regardless of
     // whether this overlay's window is open -- needed so a persisted value
     // (see ResolveAddress below) actually takes effect on a fresh launch

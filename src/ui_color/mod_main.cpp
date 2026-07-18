@@ -59,8 +59,9 @@ class UiColorDialog : public rex::ui::ImGuiDialog {
  public:
   UiColorDialog(rex::ui::ImGuiDrawer* drawer, rex::Runtime* runtime)
       : ImGuiDialog(drawer), runtime_(runtime) {
-    rex::ui::RegisterBind("bind_ui_color", "F7", "Toggle UI color picker",
-                          [this] { visible_ = !visible_; });
+    rex::ui::RegisterBind(
+        "bind_ui_color", "F7", "Toggle UI color picker", [this] { visible_ = !visible_; },
+        [this] { return visible_; }, "UI Color Picker");
   }
 
   ~UiColorDialog() override { rex::ui::UnregisterBind("bind_ui_color"); }

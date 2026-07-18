@@ -86,8 +86,9 @@ class PlayerStatsDialog : public rex::ui::ImGuiDialog {
  public:
   PlayerStatsDialog(rex::ui::ImGuiDrawer* drawer, rex::Runtime* runtime)
       : ImGuiDialog(drawer), runtime_(runtime) {
-    rex::ui::RegisterBind("bind_player_stats", "F5", "Toggle player stats overlay",
-                          [this] { visible_ = !visible_; });
+    rex::ui::RegisterBind(
+        "bind_player_stats", "F5", "Toggle player stats overlay", [this] { visible_ = !visible_; },
+        [this] { return visible_; }, "Player Stats");
   }
 
   ~PlayerStatsDialog() override { rex::ui::UnregisterBind("bind_player_stats"); }

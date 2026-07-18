@@ -43,8 +43,9 @@ class EventPongDialog : public rex::ui::ImGuiDialog {
  public:
   EventPongDialog(rex::ui::ImGuiDrawer* drawer, rex::Runtime* runtime)
       : ImGuiDialog(drawer), runtime_(runtime) {
-    rex::ui::RegisterBind("bind_event_pong", "F11", "Toggle event pong overlay",
-                          [this] { visible_ = !visible_; });
+    rex::ui::RegisterBind(
+        "bind_event_pong", "F11", "Toggle event pong overlay", [this] { visible_ = !visible_; },
+        [this] { return visible_; }, "Event Pong");
 
     if (runtime_ && runtime_->mod_registry()) {
       runtime_->mod_registry()->Subscribe("sample.ping", [this](const auto& payload) {

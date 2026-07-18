@@ -200,8 +200,9 @@ class MemoryPeekDialog : public rex::ui::ImGuiDialog {
  public:
   MemoryPeekDialog(rex::ui::ImGuiDrawer* drawer, rex::Runtime* runtime)
       : ImGuiDialog(drawer), runtime_(runtime) {
-    rex::ui::RegisterBind("bind_memory_peek", "F10", "Toggle memory peek overlay",
-                          [this] { visible_ = !visible_; });
+    rex::ui::RegisterBind(
+        "bind_memory_peek", "F10", "Toggle memory peek overlay", [this] { visible_ = !visible_; },
+        [this] { return visible_; });
     std::snprintf(address_buf_, sizeof(address_buf_), "%08X", 0u);
   }
 

@@ -60,8 +60,9 @@ class BusInspectorDialog : public rex::ui::ImGuiDialog {
  public:
   BusInspectorDialog(rex::ui::ImGuiDrawer* drawer, rex::Runtime* runtime)
       : ImGuiDialog(drawer), runtime_(runtime) {
-    rex::ui::RegisterBind("bind_bus_inspector", "F5", "Toggle bus inspector overlay",
-                          [this] { visible_ = !visible_; });
+    rex::ui::RegisterBind(
+        "bind_bus_inspector", "F5", "Toggle bus inspector overlay", [this] { visible_ = !visible_; },
+        [this] { return visible_; }, "Bus Inspector");
 
     auto* registry = runtime_ ? runtime_->mod_registry() : nullptr;
     if (!registry) {

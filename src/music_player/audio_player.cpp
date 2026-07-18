@@ -201,8 +201,9 @@ bool IconButton(const char* str_id, DrawIconFn&& draw_icon, bool active = false)
 class AudioPlayerDialog : public rex::ui::ImGuiDialog {
  public:
   explicit AudioPlayerDialog(rex::ui::ImGuiDrawer* drawer) : ImGuiDialog(drawer) {
-    rex::ui::RegisterBind("bind_audio_player", "F8", "Toggle audio player",
-                          [this] { visible_ = !visible_; });
+    rex::ui::RegisterBind(
+        "bind_audio_player", "F8", "Toggle audio player", [this] { visible_ = !visible_; },
+        [this] { return visible_; }, "Audio Player");
   }
 
   ~AudioPlayerDialog() override { rex::ui::UnregisterBind("bind_audio_player"); }

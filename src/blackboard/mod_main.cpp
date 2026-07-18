@@ -60,8 +60,9 @@ class BlackboardDialog : public rex::ui::ImGuiDialog {
  public:
   BlackboardDialog(rex::ui::ImGuiDrawer* drawer, rex::Runtime* runtime)
       : ImGuiDialog(drawer), runtime_(runtime) {
-    rex::ui::RegisterBind("bind_blackboard", "F12", "Toggle blackboard overlay",
-                          [this] { visible_ = !visible_; });
+    rex::ui::RegisterBind(
+        "bind_blackboard", "F12", "Toggle blackboard overlay", [this] { visible_ = !visible_; },
+        [this] { return visible_; }, "Blackboard");
 
     if (auto* registry = runtime_ ? runtime_->mod_registry() : nullptr) {
       registry->Subscribe("blackboard.set", [this](const auto& payload) { OnSet(payload); });
