@@ -142,6 +142,8 @@ def update_mod_platform_field(src_dir, name, manifest_keys):
             replaced = True
             break
     if not replaced:
+        if lines and not lines[-1].endswith("\n"):
+            lines[-1] += "\n"
         lines.append(new_line)
 
     with open(manifest_path, "w", encoding="utf-8") as f:
