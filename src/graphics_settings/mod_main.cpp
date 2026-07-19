@@ -1,7 +1,7 @@
 // graphics_settings mod - overlay (F6) exposing two Settings-screen values
 // that the game itself doesn't show as numbers: the screen-stretch viewport
 // (preset buttons + custom width/height inputs, fully editable) and the
-// Original/Enhanced graphics style (read-only display).
+// Original/Enhanced graphics style (now also editable).
 //
 // The game's Settings screen has a debug-style overscan/stretch adjustment
 // (arrow keys widen/narrow the rendered viewport) that isn't exposed with
@@ -10,18 +10,19 @@
 // height) was found via a min/max boundary memory scan. More info in
 // mods_src/game_symbols/mod_main.cpp
 //
-// The graphics-style value mirrors live, but is NOT editable from here:
-// writing it (tried several different guest addresses and combinations)
-// never rendered correctly; switching styles appears to run an actual
-// game code path (likely a render-resource reload), not just flip a memory
-// value. See mods_src/game_symbols/mod_main.cpp's kGraphicsStyleAddrVanilla
-// comment for the full investigation. Switching must be done via the real
-// in-game Settings menu.
+// The graphics-style toggle writes directly to the applied settings entry
+// byte that the per-frame render conversion (sub_824FB460) reads, rather
+// than to the derived global (dword_828B146C) which gets overwritten every
+// frame. The pointer chain is: app_singleton_ptr → singleton + 2296 →
+// settings_base → +4 → data_ptr, then the graphics style entry lives at
+// 180 * (*(data_ptr + 4348) + 21) + data_ptr + 28, with the style byte
+// at offset +2 (0 = Original, non-zero = Enhanced). The menu selection at
+// data_ptr + 4548 is also updated for UI consistency.
 //
-// Like mods_src/ui_color, this mod looks both addresses up by name
-// ("graphics.stretch_rect", "graphics.style") from the shared registry
-// mods_src/game_symbols publishes into, instead of hardcoding them, so it
-// keeps working if the vanilla/TU split is ever filled in there.
+// Like mods_src/ui_color, this mod looks addresses up by name from the
+// shared registry mods_src/game_symbols publishes into, instead of
+// hardcoding them, so it keeps working if the vanilla/TU split is ever
+// filled in there.
 
 #include <rex/system/mod_plugin.h>
 
@@ -98,6 +99,11 @@ uint32_t ReadGuestU32BE(rex::memory::Memory* memory, uint32_t guest_address) {
 void WriteGuestU32BE(rex::memory::Memory* memory, uint32_t guest_address, uint32_t value) {
   uint8_t* host_address = memory->TranslateVirtual<uint8_t*>(guest_address);
   rex::memory::store_and_swap<uint32_t>(host_address, value);
+}
+
+void WriteGuestU8(rex::memory::Memory* memory, uint32_t guest_address, uint8_t value) {
+  uint8_t* host_address = memory->TranslateVirtual<uint8_t*>(guest_address);
+  *host_address = value;
 }
 
 // Persists the custom stretch as a fraction of the configured render
@@ -265,8 +271,7 @@ class GraphicsSettingsDialog : public rex::ui::ImGuiDialog {
   GraphicsSettingsDialog(rex::ui::ImGuiDrawer* drawer, rex::Runtime* runtime)
       : ImGuiDialog(drawer), runtime_(runtime) {
     rex::ui::RegisterBind(
-        "bind_graphics_settings", "F6", "Toggle graphics settings overlay", [this] { visible_ = !visible_; },
-        [this] { return visible_; }, "Graphics Settings");
+        "bind_graphics_settings", "F6", "Toggle graphics settings overlay", [this] { visible_ = !visible_; });
     // Reasserts the last-requested stretch every guest frame regardless of
     // whether this overlay's window is open -- needed so a persisted value
     // (see ResolveAddress below) actually takes effect on a fresh launch
@@ -293,6 +298,10 @@ class GraphicsSettingsDialog : public rex::ui::ImGuiDialog {
       if (auto addr = runtime_->mod_registry()->FindAddress("graphics.style")) {
         style_addr_ = *addr;
         style_addr_resolved_ = true;
+      }
+      if (auto addr = runtime_->mod_registry()->FindAddress("app.singleton_ptr")) {
+        app_singleton_addr_ = *addr;
+        app_singleton_resolved_ = true;
       }
     }
 
@@ -354,24 +363,16 @@ class GraphicsSettingsDialog : public rex::ui::ImGuiDialog {
       bool style_readable = style_heap && style_heap->QueryRangeAccess(style_addr_, style_addr_ + 3) !=
                                                rex::memory::PageAccess::kNoAccess;
       if (style_readable) {
-        // Read-only: writing this from the overlay was tried extensively
-        // (menu-selection address, applied-flag address, a companion scale
-        // float, and a one-shot "trigger" pulse address, alone and in
-        // various combinations) and never rendered correctly -- it looks
-        // like the real Settings menu runs an actual code path (likely a
-        // render-resource reload) on a genuine selection change that can't
-        // be replicated by writing memory values alone. Just mirror the
-        // live value here; switching must be done via the real Settings
-        // menu. See mods_src/game_symbols/mod_main.cpp's
-        // kGraphicsStyleAddrVanilla comment for the full story.
         uint32_t style = ReadGuestU32BE(memory, style_addr_);
         bool enhanced = style != 0;
         ImGui::TextUnformatted("Graphics style:");
-        ImGui::BeginDisabled();
-        ImGui::RadioButton("Original", !enhanced);
+        if (ImGui::RadioButton("Original", !enhanced)) {
+          SetGraphicsStyle(0);
+        }
         ImGui::SameLine();
-        ImGui::RadioButton("Enhanced", enhanced);
-        ImGui::EndDisabled();
+        if (ImGui::RadioButton("Enhanced", enhanced)) {
+          SetGraphicsStyle(1);
+        }
         ImGui::Separator();
       }
     }
@@ -521,6 +522,34 @@ class GraphicsSettingsDialog : public rex::ui::ImGuiDialog {
   }
 
  private:
+  // Writes the graphics style to the applied settings entry byte that
+  // sub_824FB460 reads every frame, and updates the menu selection for
+  // UI consistency. Follows the pointer chain:
+  //   app_singleton_ptr → singleton → +2296 → settings_base → +4 → data_ptr
+  //   entry_addr = 180 * (*(data_ptr + 4348) + 21) + data_ptr + 28
+  //   style byte at entry_addr + 2, menu selection at data_ptr + 4548.
+  bool SetGraphicsStyle(uint8_t style_value) {
+    if (!app_singleton_resolved_ || !runtime_) {
+      return false;
+    }
+    auto* memory = runtime_->memory();
+    if (!memory) {
+      return false;
+    }
+
+    uint32_t singleton = ReadGuestU32BE(memory, app_singleton_addr_);
+    uint32_t settings_base = ReadGuestU32BE(memory, singleton + 2296);
+    uint32_t data_ptr = ReadGuestU32BE(memory, settings_base + 4);
+    uint32_t base_index = ReadGuestU32BE(memory, data_ptr + 4348);
+
+    uint32_t entry_addr = 180 * (base_index + 21) + data_ptr + 28;
+
+    WriteGuestU8(memory, entry_addr + 2, style_value);
+    WriteGuestU8(memory, data_ptr + 4548, style_value);
+
+    return true;
+  }
+
   void SetOverride(uint32_t width, uint32_t height) {
     override_width_ = width;
     override_height_ = height;
@@ -570,6 +599,9 @@ class GraphicsSettingsDialog : public rex::ui::ImGuiDialog {
 
   bool style_addr_resolved_ = false;
   uint32_t style_addr_ = 0;
+
+  bool app_singleton_resolved_ = false;
+  uint32_t app_singleton_addr_ = 0;
 
   bool custom_seeded_ = false;
   int custom_width_ = static_cast<int>(k1610DefaultWidth);
