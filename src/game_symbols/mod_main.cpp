@@ -123,18 +123,27 @@ constexpr uint32_t kPlayerStatsAddrTU = 0x8317493Cu;
 // Guest address of the real rooms-visited counter, a single big-endian
 // uint32_t living well outside the kPlayerStatsAddrVanilla struct above --
 // found via the min/max boundary-matrix technique's sibling, an exact value-
-// transition scan: snapshotted every guest-range (0x80000000-0x94000000)
-// address holding the on-screen ROOMS value (57), asked the user to walk
-// into one new room (ROOMS -> 58), rescanned, and intersected the two sets.
-// 4210 candidates for "57 somewhere in the guest range" collapsed to exactly
-// 2 (this address plus its usual +0x10000000 heap-alias mirror). Confirmed
-// live: held steady at 59 across a 5-second gap with no room change (ruling
-// out a free-running frame/tick counter that would coincidentally pass the
-// same +1 transition test), and matched the user's on-screen ROOMS exactly
-// at 57, 58, and 59 in sequence.
+// transition scan (scripts/re/scan_guest_memory.py in NocturneRecomp):
+// snapshotted every host address holding the on-screen ROOMS value (57),
+// asked the user to walk into one new room (ROOMS -> 58), rescanned, and
+// intersected the two sets. Collapsed to exactly 2 candidates (this address
+// plus its usual +0x10000000 heap-alias mirror); confirmed live, matching
+// the user's on-screen ROOMS exactly across 57, 58, and 59 in sequence.
 //
-// Vanilla only so far -- not yet found in the TU build.
-constexpr uint32_t kRoomsAddrVanilla = 0x83164CD0u;
+// CORRECTION: this address was originally published as 0x83164CD0 (see git
+// history), derived the same way against an earlier vanilla session. That
+// value went stale (reads 0 in later sessions/builds -- reported via
+// player_stats/room_presence in NocturneRecomp both showing ROOMS 0 with a
+// real save at 57). Re-running the scan against a live vanilla process found
+// the counter at 0x83164F10 instead (0x240 higher); re-running it again
+// against a NOCTURNE_TU build found it at exactly the *original* 0x83164CD0
+// -- i.e. the address first published as "vanilla" was actually the TU one,
+// mislabeled, and 0x83164F10 is the real vanilla address. The 0x240 delta
+// between them matches the vanilla/TU delta used everywhere else in this
+// file (see kAccentAddrVanilla/TU, kPlayerStatsAddrVanilla/TU), which is
+// what caught the mislabeling.
+constexpr uint32_t kRoomsAddrVanilla = 0x83164F10u;
+constexpr uint32_t kRoomsAddrTU = 0x83164CD0u;
 
 // Guest global holding a POINTER to the Application/framework singleton
 // object (the `a1` passed to the game's fwmain mode loop / fixed-timestep
@@ -186,7 +195,7 @@ class GameSymbolsMod : public rex::system::IModPlugin {
                                                 kGraphicsStyleTriggerAddrVanilla);
       runtime_->mod_registry()->RegisterAddress("player.stats", kPlayerStatsAddrVanilla,
                                                 kPlayerStatsAddrTU);
-      runtime_->mod_registry()->RegisterAddress("player.rooms", kRoomsAddrVanilla);
+      runtime_->mod_registry()->RegisterAddress("player.rooms", kRoomsAddrVanilla, kRoomsAddrTU);
       runtime_->mod_registry()->RegisterAddress("app.singleton_ptr",
                                                 kAppSingletonPtrAddrVanilla,
                                                 kAppSingletonPtrAddrTU);
