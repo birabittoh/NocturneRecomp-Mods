@@ -167,6 +167,14 @@ constexpr uint32_t kAppSingletonPtrAddrVanilla = 0x82E4F808u;
 // for the vanilla->TU function-matching workflow.
 constexpr uint32_t kAppSingletonPtrAddrTU = 0x82E4F5C8u;
 
+// Guest address of the game-clear flag: OR of all save slots' clear flags.
+// Non-zero = game has been cleared at least once, which is a prerequisite for
+// Richter mode (sub_82395868 checks this alongside the player name being
+// "richter "). Address found via the save-load path: sub_8238FC38 resets it
+// to 0 (case 0), then sub_8238FAC8 ORs in each slot's save offset 0x124.
+constexpr uint32_t kGameClearFlagAddrVanilla = 0x83133AFCu;
+constexpr uint32_t kGameClearFlagAddrTU = 0x831338BCu;  // -0x240 TU delta
+
 // Guest address of the driver function behind XSessionWriteStats (XGI
 // 0xB0025), the game's leaderboard-score write path -- see
 // docs/leaderboard-write-path-xsessionwritestats.md (or the equivalent
@@ -199,6 +207,9 @@ class GameSymbolsMod : public rex::system::IModPlugin {
       runtime_->mod_registry()->RegisterAddress("app.singleton_ptr",
                                                 kAppSingletonPtrAddrVanilla,
                                                 kAppSingletonPtrAddrTU);
+      runtime_->mod_registry()->RegisterAddress("game.clear_flag",
+                                                kGameClearFlagAddrVanilla,
+                                                kGameClearFlagAddrTU);
       runtime_->mod_registry()->RegisterAddress("leaderboard.write_stats_fn",
                                                 kLeaderboardWriteStatsFnAddrVanilla);
     }
