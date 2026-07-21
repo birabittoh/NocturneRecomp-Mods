@@ -39,9 +39,11 @@ own make_mods.py does it. linux-arm64 has no cross-build path here -- build
 it on an arm64 host (CI uses a native ubuntu-24.04-arm runner for exactly
 this reason).
 
-After building, each mod's `platform` key in mod.toml is (re)written to
-record which platform(s) mods/<name>/code/ actually ships a binary for right
-now -- this key is script-managed, not something a mod author sets by hand.
+After building, each mod's `platform` key in mods/<name>/mod.toml (the built
+copy, not the one under src/) is (re)written to record which platform(s)
+mods/<name>/code/ actually ships a binary for right now -- this key is
+script-managed, not something a mod author sets by hand, and never touches
+the src/ manifest.
 """
 import argparse
 import os
@@ -386,10 +388,11 @@ def main():
     for name in code_names:
         mod_src_dir = os.path.join(src_dir, name)
         built = built_platforms_for_mod(root, name)
-        update_mod_platform_field(src_dir, name, built)
         manifest_src = os.path.join(mod_src_dir, "mod.toml")
         if os.path.isfile(manifest_src):
-            shutil.copy2(manifest_src, os.path.join(root, "mods", name, "mod.toml"))
+            manifest_dest_dir = os.path.join(root, "mods", name)
+            shutil.copy2(manifest_src, os.path.join(manifest_dest_dir, "mod.toml"))
+            update_mod_platform_field(os.path.join(root, "mods"), name, built)
 
     if args.package:
         for name in mod_names:
