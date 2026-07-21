@@ -11,14 +11,14 @@
 // address, unrelated to the "player.stats" struct (see game_symbols's +0x74
 // note for the field that was originally, incorrectly, assumed to be it).
 //
+// A "Game Cleared" checkbox toggles the in-memory game-clear flag
+// (dword_83133AFC), which must be non-zero for Richter mode to activate
+// when the player name is "richter " (see sub_82395868).
+//
 // Two things shown on the same in-game screen are deliberately NOT shown
 // here because game_symbols wasn't able to find them yet: "NEXT" (exp to
 // next level) and "STATUS" (ailment indicator). See the offset table in
 // game_symbols/mod_main.cpp for the full investigation notes.
-//
-// Unlike the screen-stretch rect in mods_src/graphics_settings, these fields
-// are ordinary save-file stats, not re-derived by the game every frame, so a
-// single write on change sticks -- no per-frame reassertion needed.
 
 #include <rex/system/mod_plugin.h>
 
@@ -82,6 +82,12 @@ void WriteGuestU32BE(rex::memory::Memory* memory, uint32_t guest_address, uint32
   rex::memory::store_and_swap<uint32_t>(host_address, value);
 }
 
+std::string ToHex(uint64_t value, int width) {
+  char buf[32];
+  std::snprintf(buf, sizeof(buf), "%0*llX", width, static_cast<unsigned long long>(value));
+  return buf;
+}
+
 class PlayerStatsDialog : public rex::ui::ImGuiDialog {
  public:
   PlayerStatsDialog(rex::ui::ImGuiDrawer* drawer, rex::Runtime* runtime)
@@ -105,6 +111,10 @@ class PlayerStatsDialog : public rex::ui::ImGuiDialog {
       if (auto addr = runtime_->mod_registry()->FindAddress("player.rooms")) {
         rooms_addr_ = *addr;
         rooms_addr_resolved_ = true;
+      }
+      if (auto addr = runtime_->mod_registry()->FindAddress("game.clear_flag")) {
+        clear_flag_addr_ = *addr;
+        clear_flag_addr_resolved_ = true;
       }
     }
   }
@@ -166,6 +176,18 @@ class PlayerStatsDialog : public rex::ui::ImGuiDialog {
       }
     }
 
+    clear_flag_readable_ = false;
+    clear_flag_val_ = 0;
+    if (clear_flag_addr_resolved_) {
+      auto* flag_heap = memory->LookupHeap(clear_flag_addr_);
+      clear_flag_readable_ = flag_heap &&
+                             flag_heap->QueryRangeAccess(clear_flag_addr_, clear_flag_addr_ + 3) !=
+                                 rex::memory::PageAccess::kNoAccess;
+      if (clear_flag_readable_) {
+        clear_flag_val_ = ReadGuestU32BE(memory, clear_flag_addr_);
+      }
+    }
+
     bool was_edit_mode = edit_mode_;
     ImGui::Checkbox("Edit mode", &edit_mode_);
     if (edit_mode_ && !was_edit_mode) {
@@ -193,6 +215,10 @@ class PlayerStatsDialog : public rex::ui::ImGuiDialog {
         ImGui::Text("ROOMS %u", rooms);
       }
       ImGui::Text("TIME  %02u:%02u:%02u", playtime_hours, playtime_minutes, playtime_seconds);
+      ImGui::Separator();
+      if (clear_flag_readable_) {
+        ImGui::Text("CLEAR %s", clear_flag_val_ ? "YES" : "NO");
+      }
     } else {
       ImGui::TextUnformatted("HP");
       ImGui::SameLine(60);
@@ -238,6 +264,12 @@ class PlayerStatsDialog : public rex::ui::ImGuiDialog {
       EditableField(memory, "##playtime_m", kPlaytimeMinutesOffset, &edit_playtime_minutes_);
       ImGui::SameLine();
       EditableField(memory, "##playtime_s", kPlaytimeSecondsOffset, &edit_playtime_seconds_);
+      if (clear_flag_readable_) {
+        bool cleared = (clear_flag_val_ != 0);
+        if (ImGui::Checkbox("CLEAR", &cleared)) {
+          WriteGuestU32BE(memory, clear_flag_addr_, cleared ? 1u : 0u);
+        }
+      }
     }
 
     ImGui::End();
@@ -301,6 +333,11 @@ class PlayerStatsDialog : public rex::ui::ImGuiDialog {
 
   bool rooms_addr_resolved_ = false;
   uint32_t rooms_addr_ = 0;
+
+  bool clear_flag_addr_resolved_ = false;
+  uint32_t clear_flag_addr_ = 0;
+  bool clear_flag_readable_ = false;
+  uint32_t clear_flag_val_ = 0;
 
   bool edit_mode_ = false;
   int edit_hp_current_ = 0;
