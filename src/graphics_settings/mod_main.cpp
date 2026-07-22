@@ -13,7 +13,9 @@
 // The graphics-style toggle writes directly to the applied settings entry
 // byte that the per-frame render conversion (sub_824FB460) reads, rather
 // than to the derived global (dword_828B146C) which gets overwritten every
-// frame. The pointer chain is: app_singleton_ptr → singleton + 2296 →
+// frame. That entry byte itself can still get clobbered once, by the
+// game's own settings/save-data init running after this mod's restore --
+// see TryRestoreStyle's comment. The pointer chain is: app_singleton_ptr → singleton + 2296 →
 // settings_base → +4 → data_ptr, then the graphics style entry lives at
 // 180 * (*(data_ptr + 4348) + 21) + data_ptr + 28, with the style byte
 // at offset +2 (0 = Original, non-zero = Enhanced). The menu selection at
@@ -29,16 +31,16 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
-#include <fstream>
+#include <filesystem>
 
 #include <imgui.h>
 
 #include <rex/cvar.h>
-#include <rex/filesystem.h>
 #include <rex/graphics/video_mode_util.h>
 #include <rex/memory/utils.h>
 #include <rex/runtime.h>
 #include <rex/system/mod_registry.h>
+#include <rex/system/mod_storage.h>
 #include <rex/system/xmemory.h>
 #include <rex/ui/imgui_dialog.h>
 #include <rex/ui/imgui_drawer.h>
@@ -106,6 +108,30 @@ void WriteGuestU8(rex::memory::Memory* memory, uint32_t guest_address, uint8_t v
   *host_address = value;
 }
 
+// Reads a big-endian uint32 only if the 4 bytes at |guest_address| are
+// currently mapped/readable, instead of blindly dereferencing. Used to walk
+// the app_singleton_ptr -> settings_base -> data_ptr pointer chain one hop
+// at a time when restoring a persisted graphics style: unlike the stretch
+// rect (a single fixed, self-contained struct), that chain is only valid
+// once the game's settings system has actually initialized, which isn't
+// guaranteed yet the moment style_addr_ itself becomes readable -- walking
+// it unconditionally this early crashes on an unmapped intermediate pointer.
+bool TryReadGuestU32BE(rex::memory::Memory* memory, uint32_t guest_address, uint32_t* out) {
+  auto* heap = memory->LookupHeap(guest_address);
+  if (!heap || heap->QueryRangeAccess(guest_address, guest_address + 3) ==
+                   rex::memory::PageAccess::kNoAccess) {
+    return false;
+  }
+  *out = ReadGuestU32BE(memory, guest_address);
+  return true;
+}
+
+bool IsGuestRangeReadable(rex::memory::Memory* memory, uint32_t guest_address, uint32_t size) {
+  auto* heap = memory->LookupHeap(guest_address);
+  return heap && heap->QueryRangeAccess(guest_address, guest_address + size - 1) !=
+                     rex::memory::PageAccess::kNoAccess;
+}
+
 // Persists the custom stretch as a fraction of the configured render
 // resolution, not raw pixels -- the stretch rect isn't save-file-persisted
 // (see kScreenStretchRectAddrVanilla's comment in game_symbols), so nothing
@@ -114,53 +140,21 @@ void WriteGuestU8(rex::memory::Memory* memory, uint32_t guest_address, uint8_t v
 // from a previous session wouldn't even be valid for the new max. Storing
 // width/GetConfiguredVideoModeWidth() and height/GetConfiguredVideoModeHeight()
 // instead means "restore to roughly this same framing" works at any
-// resolution. Lives under Runtime::user_data_root() (same per-game folder
-// the game's own saves go under, per the user -- Documents/nocturnerecomp
-// on Windows -- rather than hardcoding that folder name here, which
-// wouldn't survive a rename and wouldn't be portable to other platforms;
-// user_data_root() is however the app sets it up on this run, cross-
-// platform), not the shared nocturnerecomp.toml cvar config -- keeps this
+// resolution. The graphics style toggle (Original/Enhanced) is persisted
+// the same way, as a plain 0/1 int -- it wasn't persisted at all before
+// (SetGraphicsStyle only ever wrote live guest memory), so it reset to
+// whatever the game's own save data had every launch.
+//
+// Backed by rex::system::ModStorage (see rex/system/mod_storage.h), a
+// small key=value file under Runtime::user_data_root() (same per-game
+// folder the game's own saves go under, per the user -- Documents/
+// nocturnerecomp on Windows -- rather than hardcoding that folder name
+// here) -- not the shared nocturnerecomp.toml cvar config, keeping this
 // mod's persistence independent of that file's own save/load lifecycle
 // (which otherwise requires the user to hit "Save to config" in the
 // unrelated built-in Settings overlay).
 std::filesystem::path ConfigFilePath(rex::Runtime* runtime) {
   return runtime->user_data_root() / "mods" / "graphics_settings.cfg";
-}
-
-bool LoadPersistedRatios(rex::Runtime* runtime, double* out_width_ratio, double* out_height_ratio) {
-  std::ifstream file(ConfigFilePath(runtime));
-  if (!file) {
-    return false;
-  }
-  double width_ratio = 0.0;
-  double height_ratio = 0.0;
-  bool have_width = false;
-  bool have_height = false;
-  std::string line;
-  while (std::getline(file, line)) {
-    if (line.rfind("width_ratio=", 0) == 0) {
-      have_width = rex::cvar::ParseDouble(line.substr(12), width_ratio);
-    } else if (line.rfind("height_ratio=", 0) == 0) {
-      have_height = rex::cvar::ParseDouble(line.substr(13), height_ratio);
-    }
-  }
-  if (!have_width || !have_height || width_ratio <= 0.0 || height_ratio <= 0.0) {
-    return false;
-  }
-  *out_width_ratio = width_ratio;
-  *out_height_ratio = height_ratio;
-  return true;
-}
-
-void SavePersistedRatios(rex::Runtime* runtime, double width_ratio, double height_ratio) {
-  std::filesystem::path path = ConfigFilePath(runtime);
-  rex::filesystem::CreateParentFolder(path);
-  std::ofstream file(path, std::ios::trunc);
-  if (!file) {
-    return;
-  }
-  file << "width_ratio=" << width_ratio << "\n";
-  file << "height_ratio=" << height_ratio << "\n";
 }
 
 // Mirrors GetConfiguredVideoModeWidth/Height in the SDK's
@@ -269,17 +263,25 @@ bool IconButton(const char* str_id, DrawIconFn&& draw_icon, bool active = false)
 class GraphicsSettingsDialog : public rex::ui::ImGuiDialog {
  public:
   GraphicsSettingsDialog(rex::ui::ImGuiDrawer* drawer, rex::Runtime* runtime)
-      : ImGuiDialog(drawer), runtime_(runtime) {
+      : ImGuiDialog(drawer),
+        runtime_(runtime),
+        storage_(runtime ? ConfigFilePath(runtime) : std::filesystem::path()) {
+    storage_.Load();
     rex::ui::RegisterBind(
         "bind_graphics_settings", "F6", "Toggle graphics settings overlay", [this] { visible_ = !visible_; });
     // Reasserts the last-requested stretch every guest frame regardless of
     // whether this overlay's window is open -- needed so a persisted value
     // (see ResolveAddress below) actually takes effect on a fresh launch
-    // even if the player never presses F6. Runs on the command-processor
-    // thread (see RegisterTick's docs), not the UI thread, but Apply() below
-    // only touches guest memory, not ImGui, so that's fine.
+    // even if the player never presses F6. Also used to retry restoring the
+    // persisted graphics style until its guest struct becomes readable (see
+    // TryRestoreStyle). Runs on the command-processor thread (see
+    // RegisterTick's docs), not the UI thread, but neither of those touches
+    // ImGui, so that's fine.
     if (runtime_ && runtime_->mod_registry()) {
-      runtime_->mod_registry()->RegisterTick([this] { ReassertOverride(); });
+      runtime_->mod_registry()->RegisterTick([this] {
+        ReassertOverride();
+        TryRestoreStyle();
+      });
     }
   }
 
@@ -306,23 +308,80 @@ class GraphicsSettingsDialog : public rex::ui::ImGuiDialog {
     }
 
     // Restore a persisted custom stretch, if any, scaled to whatever
-    // resolution this launch is actually configured for -- see
-    // SavePersistedRatios/LoadPersistedRatios above for why this is stored
-    // as a ratio rather than raw pixels. Sets the override fields directly
-    // (not via SetOverride) so restoring on launch doesn't immediately
-    // rewrite the same ratio back to disk.
-    double width_ratio = 0.0;
-    double height_ratio = 0.0;
-    if (runtime_ && LoadPersistedRatios(runtime_, &width_ratio, &height_ratio)) {
+    // resolution this launch is actually configured for -- see the class's
+    // ConfigFilePath comment for why this is stored as a ratio rather than
+    // raw pixels. Sets the override fields directly (not via SetOverride)
+    // so restoring on launch doesn't immediately rewrite the same ratio
+    // back to disk.
+    auto width_ratio = storage_.GetDouble("width_ratio");
+    auto height_ratio = storage_.GetDouble("height_ratio");
+    if (width_ratio && height_ratio && *width_ratio > 0.0 && *height_ratio > 0.0) {
       override_width_ =
-          static_cast<uint32_t>(std::lround(width_ratio * GetConfiguredVideoModeWidth()));
+          static_cast<uint32_t>(std::lround(*width_ratio * GetConfiguredVideoModeWidth()));
       override_height_ =
-          static_cast<uint32_t>(std::lround(height_ratio * GetConfiguredVideoModeHeight()));
+          static_cast<uint32_t>(std::lround(*height_ratio * GetConfiguredVideoModeHeight()));
       override_active_ = true;
       custom_width_ = static_cast<int>(override_width_);
       custom_height_ = static_cast<int>(override_height_);
       custom_seeded_ = true;
     }
+
+    // Restore the persisted graphics style. Deferred to TryRestoreStyle
+    // (invoked from the same per-frame tick as ReassertOverride above)
+    // rather than applied directly here: SetGraphicsStyle dereferences the
+    // app_singleton_ptr -> settings_base -> data_ptr chain, which isn't
+    // guaranteed readable yet this early (OnModuleLaunched only guarantees
+    // the guest module's main thread is prepared, not that its settings
+    // struct is initialized) -- TryRestoreStyle retries every tick, gated
+    // on the same readability check OnDraw already uses to decide whether
+    // to show the style radio buttons, until it succeeds once.
+    if (auto style = storage_.GetInt("graphics_style")) {
+      pending_style_ = static_cast<uint8_t>(*style != 0 ? 1 : 0);
+      style_restore_pending_ = true;
+    }
+  }
+
+  // Reasserts a persisted graphics style every tick once the whole
+  // app_singleton_ptr -> settings_base -> data_ptr -> entry_addr chain
+  // SetGraphicsStyle needs is actually mapped -- this can't be a one-shot
+  // restore (as it used to be) because the game's own settings/save-data
+  // init can run *after* the chain first becomes readable and overwrite the
+  // style byte back to whatever the save data says, silently undoing a
+  // restore that already "succeeded" once. Kept active until the user
+  // explicitly picks a style from the UI (see the radio button handlers in
+  // OnDraw, which clear style_restore_pending_ so this doesn't then fight
+  // the user's own choice). Walks the chain itself with checked reads
+  // rather than just gating on style_addr_'s own readability (a separate,
+  // simpler global) and calling SetGraphicsStyle unconditionally -- that
+  // chain can still be unmapped this early even once style_addr_ is
+  // readable, and SetGraphicsStyle dereferences it without any such check
+  // (it's normally only reached from a UI click, long after boot).
+  void TryRestoreStyle() {
+    if (!style_restore_pending_ || !app_singleton_resolved_ || !runtime_) {
+      return;
+    }
+    auto* memory = runtime_->memory();
+    if (!memory) {
+      return;
+    }
+
+    uint32_t singleton = 0;
+    uint32_t settings_base = 0;
+    uint32_t data_ptr = 0;
+    uint32_t base_index = 0;
+    if (!TryReadGuestU32BE(memory, app_singleton_addr_, &singleton) ||
+        !TryReadGuestU32BE(memory, singleton + 2296, &settings_base) ||
+        !TryReadGuestU32BE(memory, settings_base + 4, &data_ptr) ||
+        !TryReadGuestU32BE(memory, data_ptr + 4348, &base_index)) {
+      return;
+    }
+    uint32_t entry_addr = 180 * (base_index + 21) + data_ptr + 28;
+    if (!IsGuestRangeReadable(memory, entry_addr + 2, 1) ||
+        !IsGuestRangeReadable(memory, data_ptr + 4548, 1)) {
+      return;
+    }
+
+    SetGraphicsStyle(pending_style_, /*persist=*/false);
   }
 
   // Writes the current override to guest memory if one is active and the
@@ -367,10 +426,12 @@ class GraphicsSettingsDialog : public rex::ui::ImGuiDialog {
         bool enhanced = style != 0;
         ImGui::TextUnformatted("Graphics style:");
         if (ImGui::RadioButton("Original", !enhanced)) {
+          style_restore_pending_ = false;
           SetGraphicsStyle(0);
         }
         ImGui::SameLine();
         if (ImGui::RadioButton("Enhanced", enhanced)) {
+          style_restore_pending_ = false;
           SetGraphicsStyle(1);
         }
         ImGui::Separator();
@@ -528,7 +589,11 @@ class GraphicsSettingsDialog : public rex::ui::ImGuiDialog {
   //   app_singleton_ptr → singleton → +2296 → settings_base → +4 → data_ptr
   //   entry_addr = 180 * (*(data_ptr + 4348) + 21) + data_ptr + 28
   //   style byte at entry_addr + 2, menu selection at data_ptr + 4548.
-  bool SetGraphicsStyle(uint8_t style_value) {
+  //
+  // |persist| is false only when called from TryRestoreStyle: writing back
+  // a value that was just read from storage is a no-op that would just
+  // Save() the file again on every launch for no reason.
+  bool SetGraphicsStyle(uint8_t style_value, bool persist = true) {
     if (!app_singleton_resolved_ || !runtime_) {
       return false;
     }
@@ -546,6 +611,11 @@ class GraphicsSettingsDialog : public rex::ui::ImGuiDialog {
 
     WriteGuestU8(memory, entry_addr + 2, style_value);
     WriteGuestU8(memory, data_ptr + 4548, style_value);
+
+    if (persist) {
+      storage_.SetInt("graphics_style", style_value != 0 ? 1 : 0);
+      storage_.Save();
+    }
 
     return true;
   }
@@ -570,9 +640,10 @@ class GraphicsSettingsDialog : public rex::ui::ImGuiDialog {
     // sanely even if the next launch is configured for a different one.
     uint32_t configured_width = GetConfiguredVideoModeWidth();
     uint32_t configured_height = GetConfiguredVideoModeHeight();
-    if (runtime_ && configured_width != 0 && configured_height != 0) {
-      SavePersistedRatios(runtime_, static_cast<double>(width) / configured_width,
-                          static_cast<double>(height) / configured_height);
+    if (configured_width != 0 && configured_height != 0) {
+      storage_.SetDouble("width_ratio", static_cast<double>(width) / configured_width);
+      storage_.SetDouble("height_ratio", static_cast<double>(height) / configured_height);
+      storage_.Save();
     }
   }
 
@@ -613,6 +684,10 @@ class GraphicsSettingsDialog : public rex::ui::ImGuiDialog {
 
   bool aspect_locked_ = false;
   double locked_aspect_ratio_ = 1.0;
+
+  rex::system::ModStorage storage_;
+  bool style_restore_pending_ = false;
+  uint8_t pending_style_ = 0;
 };
 
 class GraphicsSettingsMod : public rex::system::IModPlugin {
