@@ -231,19 +231,20 @@ def assemble_mod(mod_src_dir, name, binary_path, plat, root):
     # (see README).
     info = PLATFORM_INFO[plat]
     dest_dir = os.path.join(root, "mods", name)
+
+    # Copy the whole mod_src_dir tree first, not just mod.toml/icon.png --
+    # mods can load arbitrary runtime assets (e.g. foxy_jumpscare's
+    # assets/audio.wav and assets/frames/*.png) relative to their mod root,
+    # so anything short of the full tree risks silently dropping files a
+    # mod needs at runtime.
+    shutil.copytree(mod_src_dir, dest_dir, dirs_exist_ok=True)
+
     code_dir = os.path.join(dest_dir, "code", info["manifest_key"])
     os.makedirs(code_dir, exist_ok=True)
 
     dest_binary = os.path.join(code_dir, f"{info['prefix']}{name}{info['ext']}")
     print(f"+ cp {binary_path} {dest_binary}")
     shutil.copy2(binary_path, dest_binary)
-
-    for extra in ("mod.toml", "icon.png"):
-        src = os.path.join(mod_src_dir, extra)
-        if os.path.isfile(src):
-            dest = os.path.join(dest_dir, extra)
-            print(f"+ cp {src} {dest}")
-            shutil.copy2(src, dest)
 
 
 def build_targets_via_docker(plat, names, root, sdk_dir):
