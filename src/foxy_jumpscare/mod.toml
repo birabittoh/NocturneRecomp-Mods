@@ -1,0 +1,6 @@
+manifest_version = 1
+name = "1 in 5000 Chance for Withered Foxy Jumpscare Every Second"
+version = "1.0.0"
+game_version = "1.3.3"
+description = "A mod that has a 1/5000 (configurable) chance of causing the Withered Foxy jumpscare from FNaF every second."
+code = "foxy_jumpscare"
