@@ -1,7 +1,7 @@
 manifest_version = 2
 name = "Graphics Settings"
-version = "2.0.0"
-game_version = "1.4.1"
+version = "2.0.1"
+game_version = "1.4.4"
 author = "BiRabittoh"
 description = "Overlay (F6) for the game's graphics settings."
 code = "graphics_settings"
