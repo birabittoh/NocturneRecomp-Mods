@@ -17,6 +17,22 @@ function(rexmod_add_plugin target_name)
         CXX_STANDARD 23
         CXX_STANDARD_REQUIRED ON
     )
+    # The game ships only the matching-variant runtime DLLs next to its exe
+    # and the mod loader resolves <stem><postfix>.dll for the host config
+    # first (see rex::system::LoadModPlugin), so the output binary must
+    # carry the build config's postfix -- RelWithDebInfo produces <name>rd.dll
+    # linking rexruntimerd.dll. Release keeps a bare name; Debug gets "d"
+    # (CMake's default anyway).
+    #
+    # Set as per-target properties, NOT the CMAKE_*_POSTFIX variables: those
+    # are snapshotted onto a target when add_library() runs, so setting them
+    # afterwards (as rexmod_add_plugin() does, since the target is created
+    # above) would have no effect on the output name.
+    set_target_properties(${target_name} PROPERTIES
+        RELWITHDEBINFO_POSTFIX "rd"
+        DEBUG_POSTFIX "d"
+        RELEASE_POSTFIX ""
+    )
     # PRIVATE: a mod plugin has no consumers of its own. Linking rex::runtime
     # (never the rexcore/rexui OBJECT libraries) reuses the same in-process
     # ImGui drawer, keybind registry, and kernel state as the host exe --

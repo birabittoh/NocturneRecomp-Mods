@@ -54,6 +54,16 @@ import subprocess
 import sys
 
 
+# Mods build Release (plain name) by default.
+# Pass --config RelWithDebInfo to build against a host built RelWithDebInfo
+# instead -- the mod loader (rex::system::LoadModPlugin) resolves
+# <stem><postfix>.dll for the host's own config before falling back to a
+# bare name, and CMake targets pick up the matching postfix automatically
+# via CMAKE_<CONFIG>_POSTFIX set in src/common/mod_cmake/rexmod.cmake.
+DEFAULT_MOD_BUILD_TYPE = "Release"
+
+CONFIG_POSTFIXES = {"Release": "", "RelWithDebInfo": "rd", "Debug": "d"}
+
 PLATFORM_INFO = {
     "windows-x64": {"ext": ".dll", "prefix": "", "sdk_subdir": "win-amd64", "manifest_key": "windows-x64"},
     "linux-x64": {"ext": ".so", "prefix": "lib", "sdk_subdir": "linux-amd64", "manifest_key": "linux-x64"},
@@ -105,22 +115,26 @@ def run(args, **kwargs):
     return result
 
 
-def find_built_binary(build_dir, name, plat):
+def find_built_binary(build_dir, name, plat, config):
     info = PLATFORM_INFO[plat]
-    candidates = [os.path.join(build_dir, f"{info['prefix']}{name}{info['ext']}")]
-    for config in ("Release", "RelWithDebInfo", "Debug"):
-        candidates.append(os.path.join(build_dir, config, f"{info['prefix']}{name}{info['ext']}"))
+    postfix = CONFIG_POSTFIXES[config]
+    fname = f"{info['prefix']}{name}{postfix}{info['ext']}"
+    candidates = [
+        os.path.join(build_dir, fname),
+        os.path.join(build_dir, config, fname),
+    ]
     for path in candidates:
         if os.path.isfile(path):
             return path
     return None
 
 
-def built_platforms_for_mod(root, name):
+def built_platforms_for_mod(root, name, postfix):
     code_dir = os.path.join(root, "mods", name, "code")
     built = []
     for plat, info in PLATFORM_INFO.items():
-        binary = os.path.join(code_dir, info["manifest_key"], f"{info['prefix']}{name}{info['ext']}")
+        binary = os.path.join(code_dir, info["manifest_key"],
+                              f"{info['prefix']}{name}{postfix}{info['ext']}")
         if os.path.isfile(binary):
             built.append(info["manifest_key"])
     return built
@@ -172,7 +186,7 @@ def require_sdk(sdk_dir, plat):
         sys.exit(1)
 
 
-def build_mod_native(mod_src_dir, name, sdk_dir, cxx_compiler, root, plat):
+def build_mod_native(mod_src_dir, name, sdk_dir, cxx_compiler, root, plat, config):
     build_dir = os.path.join(root, "out", "build", "mods", plat, name)
     os.makedirs(build_dir, exist_ok=True)
 
@@ -181,14 +195,14 @@ def build_mod_native(mod_src_dir, name, sdk_dir, cxx_compiler, root, plat):
         "-S", mod_src_dir,
         "-B", build_dir,
         "-G", "Ninja",
-        "-DCMAKE_BUILD_TYPE=Release",
+        f"-DCMAKE_BUILD_TYPE={config}",
         f"-DCMAKE_PREFIX_PATH={os.path.abspath(sdk_dir)}",
         f"-DCMAKE_CXX_COMPILER={cxx_compiler}",
     ]
     run(configure_args)
     run(["cmake", "--build", build_dir, "--parallel", str(os.cpu_count() or 1)])
 
-    binary = find_built_binary(build_dir, name, plat)
+    binary = find_built_binary(build_dir, name, plat, config)
     if not binary:
         print(f"error: couldn't find built binary for mod '{name}' under {build_dir}",
               file=sys.stderr)
@@ -196,7 +210,7 @@ def build_mod_native(mod_src_dir, name, sdk_dir, cxx_compiler, root, plat):
     return binary
 
 
-def build_mod_windows_cross(mod_src_dir, name, sdk_dir, root):
+def build_mod_windows_cross(mod_src_dir, name, sdk_dir, root, config):
     build_dir = os.path.join(root, "out", "build", "mods", "windows-cross", name)
     os.makedirs(build_dir, exist_ok=True)
     toolchain_file = os.path.join(root, "scripts", "docker", "windows-msvc-cross-toolchain.cmake")
@@ -206,14 +220,14 @@ def build_mod_windows_cross(mod_src_dir, name, sdk_dir, root):
         "-S", mod_src_dir,
         "-B", build_dir,
         "-G", "Ninja",
-        "-DCMAKE_BUILD_TYPE=Release",
+        f"-DCMAKE_BUILD_TYPE={config}",
         f"-DCMAKE_TOOLCHAIN_FILE={toolchain_file}",
         f"-DCMAKE_PREFIX_PATH={os.path.abspath(sdk_dir)}",
     ]
     run(configure_args)
     run(["cmake", "--build", build_dir, "--parallel", str(os.cpu_count() or 1)])
 
-    binary = find_built_binary(build_dir, name, "windows-x64")
+    binary = find_built_binary(build_dir, name, "windows-x64", config)
     if not binary:
         print(f"error: couldn't find built binary for mod '{name}' under {build_dir}",
               file=sys.stderr)
@@ -221,7 +235,7 @@ def build_mod_windows_cross(mod_src_dir, name, sdk_dir, root):
     return binary
 
 
-def assemble_mod(mod_src_dir, name, binary_path, plat, root):
+def assemble_mod(mod_src_dir, name, binary_path, plat, root, postfix):
     # Binaries land under code/<platform>/ rather than flat code/, since
     # linux-x64 and linux-arm64 both produce lib<name>.so and would
     # otherwise collide -- this also lets a single mod folder (and
@@ -242,12 +256,12 @@ def assemble_mod(mod_src_dir, name, binary_path, plat, root):
     code_dir = os.path.join(dest_dir, "code", info["manifest_key"])
     os.makedirs(code_dir, exist_ok=True)
 
-    dest_binary = os.path.join(code_dir, f"{info['prefix']}{name}{info['ext']}")
+    dest_binary = os.path.join(code_dir, f"{info['prefix']}{name}{postfix}{info['ext']}")
     print(f"+ cp {binary_path} {dest_binary}")
     shutil.copy2(binary_path, dest_binary)
 
 
-def build_targets_via_docker(plat, names, root, sdk_dir):
+def build_targets_via_docker(plat, names, root, sdk_dir, config):
     if shutil.which("docker") is None:
         print(f"error: can't build '{plat}' natively on this host and no `docker` found in "
               f"PATH to cross-build it instead", file=sys.stderr)
@@ -272,7 +286,8 @@ def build_targets_via_docker(plat, names, root, sdk_dir):
     sdk_subdir = PLATFORM_INFO[plat]["sdk_subdir"]
     inner_cmd = (
         f"python3 scripts/download-sdk.py {sdk_dir} --pinned --platform {sdk_subdir} && "
-        f"python3 scripts/make_mods.py --target {plat} --sdk-dir {sdk_dir} " + " ".join(mod_args)
+        f"python3 scripts/make_mods.py --target {plat} --sdk-dir {sdk_dir} --config {config} "
+        + " ".join(mod_args)
     )
     run([
         "docker", "run", "--rm",
@@ -318,7 +333,12 @@ def main():
                         help="Only build for this platform (repeatable); default: host's own platform")
     parser.add_argument("--package", action="store_true",
                         help="Also zip each built mod to mods/<name>.zip")
+    parser.add_argument("--config", choices=list(CONFIG_POSTFIXES.keys()),
+                        default=DEFAULT_MOD_BUILD_TYPE,
+                        help=f"CMake build config mods are built with, and whose postfix "
+                             f"the output binary carries (default: {DEFAULT_MOD_BUILD_TYPE})")
     args = parser.parse_args()
+    postfix = CONFIG_POSTFIXES[args.config]
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
     root = os.path.normpath(os.path.join(script_dir, ".."))
@@ -371,24 +391,24 @@ def main():
                 for name in code_names:
                     mod_src_dir = os.path.join(src_dir, name)
                     print(f"\n--- Building mod '{name}' natively for {plat} ---")
-                    binary = build_mod_native(mod_src_dir, name, sdk_dir, cxx_compiler, root, plat)
-                    assemble_mod(mod_src_dir, name, binary, plat, root)
+                    binary = build_mod_native(mod_src_dir, name, sdk_dir, cxx_compiler, root, plat, args.config)
+                    assemble_mod(mod_src_dir, name, binary, plat, root, postfix)
 
             elif plat == "windows-x64" and can_cross_build_windows_locally():
                 require_sdk(sdk_dir, plat)
                 for name in code_names:
                     mod_src_dir = os.path.join(src_dir, name)
                     print(f"\n--- Cross-building mod '{name}' for windows-x64 (clang-cl + xwin) ---")
-                    binary = build_mod_windows_cross(mod_src_dir, name, sdk_dir, root)
-                    assemble_mod(mod_src_dir, name, binary, plat, root)
+                    binary = build_mod_windows_cross(mod_src_dir, name, sdk_dir, root, args.config)
+                    assemble_mod(mod_src_dir, name, binary, plat, root, postfix)
 
             else:
                 print(f"host can't build '{plat}' directly -- falling back to Docker")
-                build_targets_via_docker(plat, code_names, root, sdk_dir)
+                build_targets_via_docker(plat, code_names, root, sdk_dir, args.config)
 
     for name in code_names:
         mod_src_dir = os.path.join(src_dir, name)
-        built = built_platforms_for_mod(root, name)
+        built = built_platforms_for_mod(root, name, postfix)
         manifest_src = os.path.join(mod_src_dir, "mod.toml")
         if os.path.isfile(manifest_src):
             manifest_dest_dir = os.path.join(root, "mods", name)
