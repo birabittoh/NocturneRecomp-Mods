@@ -2,8 +2,10 @@
 
 Source for the built-in mod examples for
 [NocturneRecomp](https://github.com/birabittoh/NocturneRecomp). See that
-repo's `docs/making-mods.md` for the mod-authoring guide (plugin ABI, shared
-mod registry, `mod.toml` format, etc.).
+repo's
+[`docs/making-mods.md`](https://github.com/birabittoh/NocturneRecomp/blob/main/docs/making-mods.md)
+for the mod-authoring guide (plugin ABI, shared mod registry, `mod.toml`
+format, etc.).
 
 ## Layout
 
