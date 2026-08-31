@@ -1,0 +1,7 @@
+manifest_version = 2
+name = "PSX Button Prompts"
+version = "1.0.1"
+author = "hansied67"
+description = "Replaces Xbox button prompts with hand-drawn PSX ones."
+platform = "windows-x64,linux-x64,linux-arm64"
+# no platform needed since it's just file replacements, there's no code involved
