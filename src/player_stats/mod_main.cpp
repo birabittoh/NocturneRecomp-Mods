@@ -283,9 +283,42 @@ class PlayerStatsDialog : public rex::ui::ImGuiDialog {
     ImGui::Separator();
 
     if (!edit_mode_) {
-      ImGui::Text("HP    %u/%u", hp_current, hp_max);
-      ImGui::Text("HEART %u/%u", heart_current, heart_max);
-      ImGui::Text("MP    %u/%u", mp_current, mp_max);
+      const float kValueX = 100.0f;
+      char hp_value[32];
+      std::snprintf(hp_value, sizeof(hp_value), "%4u/%-4u", hp_current, hp_max);
+      ImGui::Text("HP");
+      ImGui::SameLine(kValueX);
+      ImGui::TextUnformatted(hp_value);
+      ImGui::SameLine();
+      ImGui::BeginDisabled(hp_current >= hp_max);
+      if (ImGui::Button("Max##hp")) {
+        WriteGuestU32BE(memory, addr_ + kHpCurrentOffset, hp_max);
+      }
+      ImGui::EndDisabled();
+
+      char mp_value[32];
+      std::snprintf(mp_value, sizeof(mp_value), "%4u/%-4u", mp_current, mp_max);
+      ImGui::Text("MP");
+      ImGui::SameLine(kValueX);
+      ImGui::TextUnformatted(mp_value);
+      ImGui::SameLine();
+      ImGui::BeginDisabled(mp_current >= mp_max);
+      if (ImGui::Button("Max##mp")) {
+        WriteGuestU32BE(memory, addr_ + kMpCurrentOffset, mp_max);
+      }
+      ImGui::EndDisabled();
+
+      char heart_value[32];
+      std::snprintf(heart_value, sizeof(heart_value), "%4u/%-4u", heart_current, heart_max);
+      ImGui::Text("HEART");
+      ImGui::SameLine(kValueX);
+      ImGui::TextUnformatted(heart_value);
+      ImGui::SameLine();
+      ImGui::BeginDisabled(heart_current >= heart_max);
+      if (ImGui::Button("Max##heart")) {
+        WriteGuestU32BE(memory, addr_ + kHeartCurrentOffset, heart_max);
+      }
+      ImGui::EndDisabled();
       ImGui::Separator();
       ImGui::Text("STR %u  CON %u  INT %u  LCK %u", str, con, intelligence, lck);
       ImGui::Separator();
@@ -294,7 +327,8 @@ class PlayerStatsDialog : public rex::ui::ImGuiDialog {
       ImGui::Text("GOLD  %u", gold);
       ImGui::Text("KILLS %u", kills);
       if (rooms_readable) {
-        ImGui::Text("ROOMS %u", rooms);
+        double completion_percent = rooms * 100.0 / 942.0;
+        ImGui::Text("ROOMS %u (%.1f%%)", rooms, completion_percent);
       }
       ImGui::Text("TIME  %02u:%02u:%02u", playtime_hours, playtime_minutes, playtime_seconds);
       ImGui::Separator();
@@ -308,17 +342,17 @@ class PlayerStatsDialog : public rex::ui::ImGuiDialog {
       ImGui::SameLine();
       EditableField(memory, "##hp_max", kHpMaxOffset, &edit_hp_max_);
 
-      ImGui::TextUnformatted("HEART");
-      ImGui::SameLine(60);
-      EditableField(memory, "##heart_current", kHeartCurrentOffset, &edit_heart_current_);
-      ImGui::SameLine();
-      EditableField(memory, "##heart_max", kHeartMaxOffset, &edit_heart_max_);
-
       ImGui::TextUnformatted("MP");
       ImGui::SameLine(60);
       EditableField(memory, "##mp_current", kMpCurrentOffset, &edit_mp_current_);
       ImGui::SameLine();
       EditableField(memory, "##mp_max", kMpMaxOffset, &edit_mp_max_);
+
+      ImGui::TextUnformatted("HEART");
+      ImGui::SameLine(60);
+      EditableField(memory, "##heart_current", kHeartCurrentOffset, &edit_heart_current_);
+      ImGui::SameLine();
+      EditableField(memory, "##heart_max", kHeartMaxOffset, &edit_heart_max_);
 
       ImGui::Separator();
 
