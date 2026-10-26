@@ -1,4 +1,4 @@
-// event_ping mod - event-bus producer, no UI.
+// event_ping mod: event-bus producer, no UI.
 //
 // Registers a per-guest-frame tick via rex::system::ModRegistry and publishes
 // a "sample.ping" event roughly once a second. Pairs with event_pong (see
@@ -8,8 +8,8 @@
 // don't exercise (those two only use RegisterAddress/FindAddress).
 //
 // RegisterTick callbacks run on the command-processor thread (see
-// DispatchTick's doc comment in mod_registry.h), not the render/UI thread --
-// this mod has no UI, so that's a non-issue here, but see event_pong for how
+// DispatchTick's doc comment in mod_registry.h), not the render/UI thread.
+// This mod has no UI, so that's a non-issue here, but see event_pong for how
 // a *consumer* has to handle it (never touch ImGui from inside a Subscribe
 // callback).
 
@@ -24,7 +24,7 @@
 namespace {
 
 // ~60 guest frames per publish; a fixed frame count (rather than wall-clock
-// time) keeps this mod's tick callback trivial -- no clock reads needed.
+// time) keeps this mod's tick callback trivial: no clock reads needed.
 constexpr uint64_t kFramesPerPing = 60;
 
 class EventPingMod : public rex::system::IModPlugin {
@@ -45,7 +45,7 @@ class EventPingMod : public rex::system::IModPlugin {
     frame_count_ = 0;
 
     // message_ is a member (not a local) so the EventPayload::bytes span
-    // stays valid for the whole Publish() call -- Publish invokes every
+    // stays valid for the whole Publish() call: Publish invokes every
     // subscriber synchronously and bytes must outlive all of them.
     message_ = "ping #" + std::to_string(seq_);
 

@@ -1,4 +1,4 @@
-// jumpscare mod - fullscreen chroma-keyed video + audio jumpscare.
+// jumpscare mod: fullscreen chroma-keyed video + audio jumpscare.
 //
 // Once per real-world second, rolls a 1-in-N chance (N configurable via the
 // foxy_jumpscare_chance cvar, default 5000) of playing a short green-screened
@@ -11,7 +11,7 @@
 // timing, drawing fullscreen, playing audio through the engine's own SDL
 // audio backend) is rex::ui::BakedClipPlayer, an SDK-side helper added
 // alongside this mod specifically to cover this "play a pre-baked clip"
-// case -- this file is just the roll-the-dice logic and cvar. Frame
+// case; this file is just the roll-the-dice logic and cvar. Frame
 // texture creation is deferred to ImGuiDrawer::OnImmediateDrawerReady
 // (also new) since IModPlugin::OnCreateDialogs runs before a presenter/
 // ImmediateDrawer is attached.
@@ -56,8 +56,8 @@ class JumpscareDialog : public rex::ui::ImGuiDialog {
     // Retried every frame (not a one-shot ImmediateDrawer-ready callback)
     // because a headless/placeholder ImmediateDrawer is attached first in
     // native rendering mode, whose CreateTexture legitimately returns
-    // nullptr (no real GPU backing yet) -- LoadFrames sees 0 frames from
-    // that one -- and the real Vulkan/D3D12-backed drawer isn't attached
+    // nullptr (no real GPU backing yet), so LoadFrames sees 0 frames from
+    // that one, and the real Vulkan/D3D12-backed drawer isn't attached
     // until ~1 second later. Polling until frames actually load handles any
     // number of such attach/replace events instead of assuming exactly one.
     if (!frames_loaded_) {

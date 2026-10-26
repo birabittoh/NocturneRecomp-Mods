@@ -1,6 +1,6 @@
 #pragma once
 // Shared helper for mods that overwrite a fixed-length string embedded in
-// the game's static data -- e.g. the item/enemy name and description
+// the game's static data, e.g. the item/enemy name and description
 // tables documented in extracted/README.md in the main repo. Generalizes
 // the pattern mods_src/xex_patch_potion and mods_src/xex_patch_red_rust
 // each implemented separately, handling the gotchas that tripped up the
@@ -19,7 +19,7 @@
 //     `ASCII - 0x20` (e.g. 'P' 0x50 -> 0x30), remaining characters are
 //     plain uppercase ASCII. Writing a plain-ASCII replacement into a name
 //     field renders as garbage, because the font's first-glyph table is
-//     indexed by that shifted range, not raw ASCII -- use
+//     indexed by that shifted range, not raw ASCII; use
 //     ApplyNameFieldPatch, not ApplyTextPatch, for these. Description
 //     fields have no such encoding; ApplyTextPatch is correct for them
 //     as-is.
@@ -37,7 +37,7 @@
 //
 // The guest address must come from scanning a *live* process
 // (scripts/scan_guest_memory.py), not from an offline-decrypted
-// default.xex file offset -- this title applies a title-update delta
+// default.xex file offset: this title applies a title-update delta
 // patch (assets/default.xexp) over the base image on every launch, which
 // can shift addresses after the patched region. See extracted/README.md.
 //
@@ -61,7 +61,7 @@ namespace rexmod {
 // bytes (including any terminator/padding that follows it), with
 // `replacement` verbatim, zero-filling any bytes past it. `replacement`
 // must fit within `field_length` (i.e. `replacement.size() <=
-// field_length`) -- longer text would run into whatever field follows,
+// field_length`); longer text would run into whatever field follows,
 // so this refuses to write at all rather than risk corrupting
 // neighboring data.
 //

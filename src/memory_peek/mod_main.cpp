@@ -1,8 +1,8 @@
-// memory_peek mod - generic, build-agnostic guest-memory hex viewer.
+// memory_peek mod: generic, build-agnostic guest-memory hex viewer.
 //
 // Demonstrates that a mod can read guest memory through the same public API
 // the base game's accent-color reader uses (rex::memory::Memory::
-// TranslateVirtual + LookupHeap), with zero hardcoded addresses -- the user
+// TranslateVirtual + LookupHeap), with zero hardcoded addresses. The user
 // scrolls a movable window over the entire 4 GB guest address space and can
 // search it for typed values. Useful as a quick interactive companion to the
 // live-memory-scan RE workflow (see scripts/re/scan_guest_memory.py): once a
@@ -262,7 +262,7 @@ class MemoryPeekDialog : public rex::ui::ImGuiDialog {
     // Deliberately NOT a single ImGuiListClipper-backed child spanning the
     // whole 4 GB space: at ~19px/row that's ~5 billion pixels of virtual
     // content height, far past float32's exact-integer range (~16.7M). ImGui
-    // (and the renderer) can't represent that faithfully -- fast/erratic
+    // (and the renderer) can't represent that faithfully; fast/erratic
     // scrolling would push cursor/scroll math into the region where float
     // precision breaks down, corrupting layout state (observed as random
     // crashes). It also can't cleanly skip hidden rows (skipping desyncs its
@@ -314,7 +314,7 @@ class MemoryPeekDialog : public rex::ui::ImGuiDialog {
         // large gap (previously capped per frame, but even the cap made
         // scrolling feel frozen for several frames). QueryRegionInfo reports
         // a whole allocation region (uniform state/protection) in one call,
-        // so an entire unmapped region -- however large -- can be skipped in
+        // so an entire unmapped region, however large, can be skipped in
         // a single jump, the same technique RunSearch already uses.
         int drawn = 0;
         uint64_t row = view_base_row_;
@@ -338,7 +338,7 @@ class MemoryPeekDialog : public rex::ui::ImGuiDialog {
           }
           if (hide_zero_rows_) {
             // Unlike "Hide empty rows" (unmapped), zero-vs-not-zero is byte
-            // content, not allocation state -- QueryRegionInfo can't tell us
+            // content, not allocation state; QueryRegionInfo can't tell us
             // that, so this has to check each row's bytes individually.
             // Cheap in practice: hide_empty_rows_ already fast-jumps past
             // the huge unmapped stretches, so this only runs over actually
@@ -367,7 +367,7 @@ class MemoryPeekDialog : public rex::ui::ImGuiDialog {
         }
         if (drawn < visible_rows && row > view_base_row_) {
           // Ran off the end of the address space while skipping hidden
-          // regions -- persist how far we got.
+          // regions; persist how far we got.
           view_base_row_ = static_cast<uint32_t>(std::min<uint64_t>(row, kTotalRows - 1));
         }
       }
@@ -376,12 +376,12 @@ class MemoryPeekDialog : public rex::ui::ImGuiDialog {
       ImGui::SameLine();
 
       // A manual proxy scrollbar over `[0, max_base_row]` row indices, not
-      // pixel offsets -- unlike ImGui's native content-height scrollbar this
+      // pixel offsets. Unlike ImGui's native content-height scrollbar, this
       // never has to represent the full 4 GB space in pixels, so it isn't
       // subject to the float-precision issue described above. With "Hide
       // empty rows" on, some slider positions land in a hidden span, but the
       // region-jump above resolves that to the nearest visible content in
-      // one step, so it no longer stalls -- it just snaps forward/back.
+      // one step, so it no longer stalls; it just snaps forward/back.
       const uint32_t kMinRow = 0;
       uint32_t slider_row = view_base_row_;
       if (ImGui::VSliderScalar("##vscrollbar", ImVec2(20.0f, avail_height), ImGuiDataType_U32,
@@ -409,7 +409,7 @@ class MemoryPeekDialog : public rex::ui::ImGuiDialog {
   }
 
   // The host bakes ImGui's embedded fixed-width font (ProggyClean) into the
-  // atlas at startup, right after its own proportional serif UI font -- see
+  // atlas at startup, right after its own proportional serif UI font; see
   // NocturnerecompApp::OnConfigureFonts. Fonts *cannot* be added to the atlas
   // at runtime (the GPU texture is only built once, before mods load), so
   // this just looks up what the host already baked instead of creating a
@@ -602,7 +602,7 @@ class MemoryPeekDialog : public rex::ui::ImGuiDialog {
   //============================================================================
 
   void DrawRow(rex::memory::Memory* memory, uint32_t address) {
-    // LookupHeap only confirms *some* heap covers the start address -- it says
+    // LookupHeap only confirms *some* heap covers the start address; it says
     // nothing about whether that heap's pages are actually committed, and a
     // heap can span reserved-but-uncommitted (or guard) pages that fault on
     // touch. QueryRangeAccess walks the real page table for the row's span so

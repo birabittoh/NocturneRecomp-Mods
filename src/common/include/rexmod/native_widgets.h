@@ -1,6 +1,6 @@
 #pragma once
 // Shared helpers for mods that want to draw using the game's own native UI
-// widgets -- plain text labels and prompt/glyph "sprite" icons -- instead of
+// widgets (plain text labels and prompt/glyph "sprite" icons) instead of
 // (or alongside) an ImGui overlay, so the result is parented to a live guest
 // screen and rendered in the game's own font/scale, indistinguishable from
 // anything the base game draws itself. Generalizes the private CallGuest/
@@ -10,7 +10,7 @@
 // glyph, so mods don't have to re-derive that plumbing from scratch.
 //
 // Every guest function this header calls is looked up by name from the
-// shared mod registry (see mods_src/game_symbols), never hardcoded -- resolve
+// shared mod registry (see mods_src/game_symbols), never hardcoded; resolve
 // once per session (e.g. in OnModuleLaunched) via ResolveTextWidgetFns/
 // ResolvePromptGlyphFns below, and reuse the resolved struct for the rest of
 // it. Requires `requires = "game_symbols"` in the calling mod's mod.toml,
@@ -18,7 +18,7 @@
 //
 // ## The PPCContext requirement
 //
-// Every function below takes a `PPCContext& ctx` that must be *live* -- i.e.
+// Every function below takes a `PPCContext& ctx` that must be *live*, i.e.
 // control must currently be inside a guest thread's call stack. Two places
 // that is NOT true, despite looking like they might be:
 //
@@ -29,7 +29,7 @@
 //     the UI thread, likewise no guest context.
 //
 // The established way to get a live one is to override some guest function
-// that runs every frame *on the guest thread* -- exactly what
+// that runs every frame *on the guest thread*, which is exactly what
 // src/graphics_settings.cpp does in NocturneRecomp, purely to have a valid
 // ctx/base pair handy every frame (see its GraphicsSettings_PerFrame, hooked
 // onto the address published as "app.fixed_timestep_tick_fn"). A mod wanting
@@ -39,7 +39,7 @@
 // still happens.
 //
 // OverrideFunction is exclusive per address (see docs/making-mods.md,
-// "Overriding a recompiled function") -- only one mod can hold the override
+// "Overriding a recompiled function"): only one mod can hold the override
 // on "app.fixed_timestep_tick_fn" at a time. A mod that already hooks some
 // other frequently-called guest function (a screen's own event handler, a
 // gameplay tick, etc.) can just as well use the ctx it's handed there instead
@@ -47,14 +47,14 @@
 //
 // ## Lifetime
 //
-// Every widget spawned here lives as long as its parent `screen` does -- the
+// Every widget spawned here lives as long as its parent `screen` does; the
 // game frees the whole tree when the screen itself is torn down (leaving the
 // screen without also cleaning these up is exactly what would leak). There is
 // no destroy/free call in this header: none of NocturneRecomp's own callers
 // need one (their labels/glyphs live exactly as long as the screen that owns
 // them), so there was nothing existing to generalize. A mod needing to remove
-// a widget before its screen closes needs its own guest-side free path --
-// out of scope here.
+// a widget before its screen closes needs its own guest-side free path,
+// which is out of scope here.
 
 #include <cstdint>
 #include <cstring>
@@ -69,7 +69,7 @@
 namespace rexmod {
 
 // Calls a guest function with up to four register arguments, saving and
-// restoring the caller's context around it -- generalizes the private
+// restoring the caller's context around it. Generalizes the private
 // CallGuest() helper NocturneRecomp's graphics_settings.cpp/native_options.cpp
 // each keep their own private copy of. `ctx` must be live (see the header
 // comment above). Returns r3 on return (every widget-ctor/find-image call
@@ -92,7 +92,7 @@ inline uint32_t CallGuestFunction(PPCContext& ctx, uint8_t* base, PPCFunc* fn, u
 }
 
 // Some guest setters (e.g. the option-list text-scale setter) take a float in
-// f1 rather than an integer in a GPR -- not common enough to fold into
+// f1 rather than an integer in a GPR. Not common enough to fold into
 // CallGuestFunction's signature, but frequent enough among prompt/list
 // widgets to be worth its own helper rather than inlining the save/restore
 // dance at every call site.
@@ -109,7 +109,7 @@ inline void CallGuestFunctionF1(PPCContext& ctx, uint8_t* base, PPCFunc* fn, uin
 }
 
 // A guest scratch buffer for staging UTF-16 text, shared across however many
-// Stage/Spawn calls a mod makes -- one instance is enough per mod, the setter
+// Stage/Spawn calls a mod makes. One instance is enough per mod; the setter
 // functions below copy out of it immediately so nothing needs to retain the
 // staged text past the call that used it. Zero-valued until first use;
 // StageUtf16 allocates it lazily.
@@ -118,12 +118,12 @@ struct GuestTextScratch {
   uint32_t capacity_chars = 0;
 };
 
-// Widens `text` (plain ASCII -- every current caller's content is, and
+// Widens `text` (plain ASCII; every current caller's content is, and
 // non-ASCII would need its own conversion before this) into `scratch`'s guest
 // buffer as UTF-16BE, allocating the buffer via `alloc_fn` on first use.
 // Returns the buffer's guest address, or 0 if allocation failed. Truncates
 // silently at `capacity_chars` (including the NUL terminator) if `text` is
-// longer -- the same tradeoff NocturneRecomp's own StagePresetName makes
+// longer, the same tradeoff NocturneRecomp's own StagePresetName makes
 // for its (short, known-length) preset names.
 inline uint32_t StageUtf16(PPCContext& ctx, uint8_t* base, PPCFunc* alloc_fn,
                            GuestTextScratch& scratch, std::string_view text,
@@ -151,7 +151,7 @@ inline uint32_t StageUtf16(PPCContext& ctx, uint8_t* base, PPCFunc* alloc_fn,
 }
 
 //=============================================================================
-// Text widgets -- plain labels, e.g. NocturneRecomp's own preset-name toast
+// Text widgets: plain labels, e.g. NocturneRecomp's own preset-name toast
 // and persistent height/width readout (see graphics_settings.cpp).
 //=============================================================================
 
@@ -165,13 +165,13 @@ struct TextWidgetFns {
   PPCFunc* set_colour_fn = nullptr;   // optional: only needed to colour a widget
 
   // False if any function SpawnTextWidget actually needs (alloc/ctor/
-  // set_text) failed to resolve -- width_fn/set_colour_fn are optional.
+  // set_text) failed to resolve; width_fn/set_colour_fn are optional.
   bool IsValid() const { return alloc_fn && ctor_fn && set_text_fn; }
 };
 
 // Looks up and resolves the text-widget function group ("menu.alloc_fn",
 // "menu.text_widget_ctor_fn", "menu.set_text_widget_literal_fn",
-// "menu.text_widget_width_fn", "menu.set_text_widget_colour_fn" -- see
+// "menu.text_widget_width_fn", "menu.set_text_widget_colour_fn"; see
 // mods_src/game_symbols) from the shared mod registry.
 inline TextWidgetFns ResolveTextWidgetFns(rex::Runtime* runtime) {
   TextWidgetFns fns;
@@ -194,7 +194,7 @@ inline TextWidgetFns ResolveTextWidgetFns(rex::Runtime* runtime) {
 
 // Allocates a text widget, parents it to `screen` (the screen's own guest
 // widget address; that screen must already be constructed/open), and sets
-// its text -- mirrors the recipe NocturneRecomp's EnsurePresetLabel/
+// its text, mirroring the recipe NocturneRecomp's EnsurePresetLabel/
 // SetPresetLabelText use for its preset-name toast. `colour` is ARGB (alpha
 // in the high byte, e.g. 0xFF000000 for opaque black); pass 0 to leave the
 // game's own default. Returns the new widget's guest address, or 0 on
@@ -210,7 +210,7 @@ inline uint32_t SpawnTextWidget(PPCContext& ctx, uint8_t* base, const TextWidget
   if (!fns.IsValid() || screen == 0) {
     return 0;
   }
-  // Matches NocturneRecomp graphics_settings.cpp's kTextWidgetSize -- the
+  // Matches NocturneRecomp graphics_settings.cpp's kTextWidgetSize: the
   // fixed allocation size the game's own text-widget constructor expects.
   constexpr uint32_t kTextWidgetSize = 4668;
   const uint32_t memory = CallGuestFunction(ctx, base, fns.alloc_fn, kTextWidgetSize);
@@ -233,7 +233,7 @@ inline uint32_t SpawnTextWidget(PPCContext& ctx, uint8_t* base, const TextWidget
 }
 
 // Re-sets an already-spawned text widget's text (e.g. updating a live
-// counter/status label every frame) -- same staging path SpawnTextWidget
+// counter/status label every frame), using the same staging path SpawnTextWidget
 // uses, just without re-allocating or re-parenting.
 inline bool SetTextWidgetText(PPCContext& ctx, uint8_t* base, const TextWidgetFns& fns,
                               GuestTextScratch& scratch, uint32_t widget, std::string_view text) {
@@ -258,7 +258,7 @@ inline uint32_t TextWidgetWidth(PPCContext& ctx, uint8_t* base, const TextWidget
   return CallGuestFunction(ctx, base, fns.width_fn, widget);
 }
 
-// Text widgets have no dedicated "set position" guest function -- every
+// Text widgets have no dedicated "set position" guest function; every
 // current caller (NocturneRecomp's own included) just writes the X/Y offset
 // fields directly, so this does too. No live ctx needed, just a mapped
 // widget address.
@@ -273,7 +273,7 @@ inline void SetTextWidgetPosition(uint8_t* base, uint32_t widget, int32_t x, int
 }
 
 //=============================================================================
-// Prompt/glyph widgets -- an icon (optionally with a text label next to it),
+// Prompt/glyph widgets: an icon (optionally with a text label next to it),
 // e.g. NocturneRecomp's own native_options.cpp CreateCustomPrompt, which is
 // what this group's Spawn call directly generalizes.
 //=============================================================================
@@ -292,8 +292,8 @@ struct PromptGlyphFns {
   PPCFunc* set_text_scale_fn = nullptr;  // optional
   uint32_t image_bank_ptr = 0;           // optional: data address, only needed with find_image_fn
 
-  // False if alloc/ctor -- the only two SpawnPromptGlyph unconditionally
-  // needs -- failed to resolve. Everything else degrades gracefully (a
+  // False if alloc/ctor (the only two SpawnPromptGlyph unconditionally
+  // needs) failed to resolve. Everything else degrades gracefully (a
   // prompt with no glyph, or no label) if unresolved/unset.
   bool IsValid() const { return alloc_fn && ctor_fn; }
 };
@@ -302,7 +302,7 @@ struct PromptGlyphFns {
 // "menu.prompt_ctor_fn", "menu.find_image_fn", "menu.prompt_set_glyph_fn",
 // "menu.prompt_show_glyph_fn", "menu.prompt_text_offset_fn",
 // "menu.prompt_set_pos_fn", "menu.option_list_set_widget_text_fn",
-// "menu.option_list_set_text_scale_fn", "menu.image_bank_ptr" -- see
+// "menu.option_list_set_text_scale_fn", "menu.image_bank_ptr"; see
 // mods_src/game_symbols) from the shared mod registry.
 inline PromptGlyphFns ResolvePromptGlyphFns(rex::Runtime* runtime) {
   PromptGlyphFns fns;
@@ -340,8 +340,8 @@ inline PromptGlyphFns ResolvePromptGlyphFns(rex::Runtime* runtime) {
 //
 // `image_name_addr` is the guest address of a NUL-terminated name string the
 // game's image bank recognizes (e.g. NocturneRecomp's kYGlyphNameAddr, "menu.
-// glyph_name_y" in the registry, is one such name already known to exist) --
-// this header has no way to enumerate what names the bank holds; that has to
+// glyph_name_y" in the registry, is one such name already known to exist).
+// This header has no way to enumerate what names the bank holds; that has to
 // come from the same kind of live RE game_symbols' other addresses did.
 //
 // Returns the new prompt's guest address, or 0 on failure (alloc/ctor
@@ -400,7 +400,7 @@ inline void SetPromptPosition(PPCContext& ctx, uint8_t* base, const PromptGlyphF
 }
 
 // Sets a prompt's text scale (its label, not its glyph), if set_text_scale_fn
-// was resolved -- native_options.cpp's CreateCustomPrompt uses this to match
+// was resolved; native_options.cpp's CreateCustomPrompt uses this to match
 // a stock prompt's scale rather than a hardcoded one; a mod with no stock
 // prompt to match can just pass a literal (1.0f is the game's own common
 // case).

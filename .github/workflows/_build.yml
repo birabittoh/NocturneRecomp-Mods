@@ -114,7 +114,7 @@ jobs:
 
       # A temporary staging artifact so the per-mod matrix job below (which
       # runs in fresh runners) can get at each mod's merged, unzipped tree.
-      # Raw dirs, not pkg/*.zip -- upload-artifact zips whatever it's given,
+      # Raw dirs, not pkg/*.zip: upload-artifact zips whatever it's given,
       # so re-uploading an already-zipped file produces a zip-of-a-zip.
       # Deleted by the cleanup job once every per-mod artifact has been
       # split out of it.
@@ -151,7 +151,7 @@ jobs:
           path: merged
 
       # upload-artifact zips whatever directory `path:` points at, but drops
-      # that directory's own name from the archive -- pointing straight at
+      # that directory's own name from the archive. Pointing straight at
       # merged/<mod> would produce a zip whose files sit at the root instead
       # of under a <mod>/ folder. Wrapping it one level deeper so the mod
       # name is a *child* of the upload root is what makes it survive.

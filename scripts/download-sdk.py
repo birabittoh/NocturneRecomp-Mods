@@ -68,7 +68,7 @@ def write_file(path, content):
 def rmtree_retry(path, attempts=5, delay=0.5):
     """Deleting a directory tree on a Windows/Docker bind mount can transiently
     fail with 'directory not empty' if another process (antivirus, an editor,
-    a concurrent build) still has a handle open somewhere underneath -- retry
+    a concurrent build) still has a handle open somewhere underneath, so retry
     a few times before giving up."""
     for attempt in range(attempts):
         try:

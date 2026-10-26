@@ -5,7 +5,7 @@ every platform's binary under its own code/<platform>/ subdirectory.
 
 Each --input is a directory containing mod folders directly at its root
 (i.e. the contents of one platform's mods/ dir, as produced by a single
-make_mods.py --target <platform> run -- see .github/workflows/_build.yml,
+make_mods.py --target <platform> run; see .github/workflows/_build.yml,
 which downloads each matrix leg's raw build as a separate artifact and
 passes each one here as an --input). Mods present in only some inputs still
 get packaged, just with fewer platform subdirectories.
@@ -55,7 +55,7 @@ def merge_mod(mod_name, input_dirs, merge_root):
     # whichever --input was merged in last just clobbered the others' platform
     # value. Recompute it from the union of platform subdirs actually present
     # under the merged code/ dir. Asset-only mods have no code/ dir at all and
-    # don't carry a `platform` key -- leave those alone.
+    # don't carry a `platform` key; leave those alone.
     code_dir = os.path.join(dest, "code")
     if os.path.isdir(code_dir):
         built = [info["manifest_key"] for info in PLATFORM_INFO.values()

@@ -1,4 +1,4 @@
-// graphics_settings mod - overlay (F6) exposing two Settings-screen values
+// graphics_settings mod: overlay (F6) exposing two Settings-screen values
 // that the game itself doesn't show as numbers: the screen-stretch viewport
 // (preset buttons + custom width/height inputs, fully editable) and the
 // Original/Enhanced graphics style (now also editable).
@@ -9,8 +9,8 @@
 // found via a min/max boundary memory scan.  More info in
 // mods_src/game_symbols/mod_main.cpp
 //
-// The four consecutive big-endian uint32 fields are LEFT, TOP, RIGHT, BOTTOM
-// -- *not* (x offset, y offset, width, height) as this file used to claim.
+// The four consecutive big-endian uint32 fields are LEFT, TOP, RIGHT, BOTTOM,
+// *not* (x offset, y offset, width, height) as this file used to claim.
 // Confirmed against the game's own initializer at sub_82582360, which fills
 // the struct with {v29, v30, display_width - v29, display_height - v30}, and
 // against every consumer: sub_82589648, sub_825AEB98, sub_825AEF30 and
@@ -23,9 +23,9 @@
 // under those names so existing presets and persisted values keep producing
 // the exact same framing) is really the RIGHT/BOTTOM edge: the native engine
 // that now owns writing this struct (src/graphics_settings.cpp in
-// NocturneRecomp, this mod no longer writes it directly -- see the
+// NocturneRecomp, this mod no longer writes it directly; see the
 // constructor's comment) derives LEFT = max_w - right and RIGHT = right,
-// which keeps LEFT + RIGHT == max_w, i.e. a horizontally centered rect --
+// which keeps LEFT + RIGHT == max_w, i.e. a horizontally centered rect,
 // matching the game's own invariant and the user's live measurement of
 // "offset_x + width == 1920" at 1080p.  The actual rendered extent is
 // therefore (2 * right - max_w), not `right`.
@@ -33,16 +33,16 @@
 // That distinction matters for more than pedantry: when 2 * right == max_w
 // the extent is exactly zero, and sub_82588EC8 (the pointer/cursor hit test)
 // guards its two integer divisions by the extent with compiler-emitted
-// `twllei <extent>, 0` traps -- a guest trap, which in a recompiled binary
+// `twllei <extent>, 0` traps: a guest trap, which in a recompiled binary
 // hangs rather than crashing.  At 720p that is right == 640 / bottom == 360;
 // at 1080p, 960 / 540.  ClampEdge() below keeps this mod's own requests clear
 // of that zero-extent case before they're ever published, and the custom
 // input boxes commit on Enter/focus-loss rather than on every keystroke, so
 // simply typing "3600" doesn't transit the trapping value 360 on the way.
 //
-// The graphics-style toggle no longer writes guest memory itself -- like the
+// The graphics-style toggle no longer writes guest memory itself. Like the
 // stretch rect above, ownership of the applied settings entry byte (which
-// the per-frame render conversion, sub_824FB460, reads -- not the derived
+// the per-frame render conversion, sub_824FB460, reads, not the derived
 // global at dword_828B146C, which gets overwritten every frame) moved to the
 // native engine (src/graphics_settings.cpp in NocturneRecomp), which
 // persists it as the graphics_style_enhanced cvar and reasserts it every
@@ -79,7 +79,7 @@
 namespace {
 
 // LTRB, per the header comment above. Only RIGHT/BOTTOM are used directly by
-// this file now (for the live display read) -- LEFT/TOP are derived by the
+// this file now (for the live display read); LEFT/TOP are derived by the
 // native engine that owns writing the struct.
 constexpr uint32_t kRightOffset = 8;
 constexpr uint32_t kBottomOffset = 12;
@@ -95,7 +95,7 @@ constexpr int64_t kMinExtent = 16;
 // How often the per-frame tick is allowed to probe page protections while
 // waiting for a guest struct to become mapped, in ticks. Every probe takes
 // the process-wide global critical region (see EnsureRectMapped), so this is
-// deliberately coarse -- these structs appear once, early, and a ~1s worst
+// deliberately coarse: these structs appear once, early, and a ~1s worst
 // case before the mod notices is imperceptible.
 constexpr uint32_t kProbeIntervalTicks = 60;
 
@@ -105,7 +105,7 @@ constexpr uint32_t kProbeIntervalTicks = 60;
 // max_width/max_height themselves track the actual configured render
 // resolution (confirmed live at 1080p: offset_x + width == 1920, offset_y +
 // height == 1080, i.e. the same struct scales 1:1 with resolution rather
-// than staying fixed at 1280x720) -- see GetConfiguredVideoModeWidth/Height
+// than staying fixed at 1280x720); see GetConfiguredVideoModeWidth/Height
 // below, which VideoWidth()/VideoHeight() use instead of a hardcoded
 // constant.
 
@@ -116,11 +116,11 @@ constexpr uint32_t kPsxDefaultHeight = 720;
 // there), divided back down to this table's 720p baseline: 1645/1.5 =
 // 1096.67, 1147/1.5 = 764.67, each rounded to the nearest integer. Scaling
 // this baseline back up at 1080p reproduces 1646x1148 (ScalePresetWidth/
-// Height's std::lround rounds the exact 1097*1.5 = 1645.5 tie up) -- 1px off
+// Height's std::lround rounds the exact 1097*1.5 = 1645.5 tie up), 1px off
 // from the original 1080p measurement in each axis, unavoidable since no
 // integer 720p baseline scales by exactly 1.5x to land on an odd target
 // (1645, 1147) precisely. This replaced the old kPsxBigWidth/Height
-// (1098/766) -- close enough to a separate "Huge" preset that having both
+// (1098/766), close enough to a separate "Huge" preset that having both
 // wasn't worth the redundancy.
 constexpr uint32_t kPsxBigWidth = 1097;
 constexpr uint32_t kPsxBigHeight = 765;
@@ -156,15 +156,15 @@ void WriteGuestU8(rex::memory::Memory* memory, uint32_t guest_address, uint8_t v
 // rex::thread::global_critical_region (see rex/system/xmemory.h), the single
 // process-wide recursive mutex that also guards guest thread suspension and
 // kernel-object state. Its header describes holding it as "disabling
-// interrupts in the guest". Calling this from the per-frame tick -- which
-// runs on the command-processor thread at GPU swap, not on a guest thread --
+// interrupts in the guest". Calling this from the per-frame tick (which
+// runs on the command-processor thread at GPU swap, not on a guest thread)
 // therefore contends with the guest for that lock every single frame, and
 // can wedge the whole emulator: guest thread enters the critical region and
 // then waits on the GPU, while the command processor blocks entering the
 // same region inside a mod tick and so never completes the swap that would
 // wake the guest. Freeze, no crash, nothing in the log. Everything below is
 // structured to call this a bounded number of times during boot and then
-// never again -- see EnsureRectMapped/PollStyleGlobalMapped. Once an address
+// never again; see EnsureRectMapped/PollStyleGlobalMapped. Once an address
 // is known-mapped, plain TranslateVirtual reads/writes need no lock at all.
 bool IsGuestRangeReadable(rex::memory::Memory* memory, uint32_t guest_address, uint32_t size) {
   auto* heap = memory->LookupHeap(guest_address);
@@ -215,7 +215,7 @@ uint32_t GetConfiguredVideoModeHeight() {
 
 // All the preset constants below are baseline pixel values tuned at the
 // game's compiled-in 720p default. Scale them to the actual configured
-// resolution before applying -- confirmed live that the stretch-rect max
+// resolution before applying. Confirmed live that the stretch-rect max
 // scales 1:1 with the configured resolution (e.g. 1.5x at 1080p), so scaling
 // the presets by the same per-axis ratio keeps their relative framing intact
 // at any resolution instead of only working at exactly 1280x720.
@@ -290,7 +290,7 @@ class GraphicsSettingsDialog : public rex::ui::ImGuiDialog {
     // ImGui, so that's fine.
     //
     // What is emphatically NOT fine on that thread is taking the global
-    // critical region, which is what probing page protections does -- see
+    // critical region, which is what probing page protections does; see
     // IsGuestRangeReadable's comment for the deadlock that causes.
     // EnsureRectMapped/PollStyleGlobalMapped below are written to probe only
     // until their addresses latch as mapped (rate-limited to one probe per
@@ -305,7 +305,7 @@ class GraphicsSettingsDialog : public rex::ui::ImGuiDialog {
       // graphics-style persistence fix) graphics.style/graphics.style_menu
       // too. This mod used to maintain its own competing per-frame reassert
       // of those same guest bytes (ReassertOverride/Apply/SetOverride for
-      // the rect, TryRestoreStyle for the style, all now removed) --
+      // the rect, TryRestoreStyle for the style, all now removed):
       // independently-tracked values racing to write the same guest memory
       // every frame, whichever ran last that frame "winning" until the
       // other stomped it back next frame. That's structurally unfixable by
@@ -315,7 +315,7 @@ class GraphicsSettingsDialog : public rex::ui::ImGuiDialog {
       // ("graphics_settings.request_preset"/"request_custom_ratio"/
       // "request_style", see the preset buttons, custom width/height commit
       // path, and style radio buttons in OnDraw below) and simply reads live
-      // guest state to display -- with native as the sole writer, that live
+      // guest state to display. With native as the sole writer, that live
       // read is always accurate, so the
       // "graphics_settings.preset_applied" subscription this used to adopt
       // as a competing override is gone too; nothing to adopt anymore.
@@ -351,7 +351,7 @@ class GraphicsSettingsDialog : public rex::ui::ImGuiDialog {
     // Stretch restore-on-launch is entirely owned by src/graphics_settings.cpp
     // in the base game now (same persisted config file/keys this mod used to
     // read directly, so an existing player's saved preference still carries
-    // over) -- it applies the restored ratio to the live guest rect itself at
+    // over); it applies the restored ratio to the live guest rect itself at
     // boot, which this mod's live OnDraw read then just picks up. No restore
     // path or "graphics_settings.preset_applied" subscription is needed here
     // anymore; see that file's Bind() for the restore side.
@@ -363,13 +363,13 @@ class GraphicsSettingsDialog : public rex::ui::ImGuiDialog {
     // save-data init running at an unpredictable point after boot. This
     // mod's own restore used to duplicate that (a second, independent
     // writer of the same two guest bytes, racing the native engine once it
-    // took over the same job) -- gone now; OnDraw's radio buttons below just
+    // took over the same job) is gone now; OnDraw's radio buttons below just
     // request a value, they no longer write memory or a config file
     // themselves.
   }
 
   // Latches whether the stretch rect is mapped. Probes at most once every
-  // kProbeIntervalTicks until it succeeds, then never probes again -- see
+  // kProbeIntervalTicks until it succeeds, then never probes again; see
   // IsGuestRangeReadable's comment for why per-frame probing is a deadlock
   // hazard rather than merely slow. Tick-thread only; OnDraw reads the
   // latched flag instead of probing on the UI thread.
@@ -411,7 +411,7 @@ class GraphicsSettingsDialog : public rex::ui::ImGuiDialog {
   // yet, so OnDraw's enabled/disabled state (and, for style, its restore
   // path) stays current without probing page protections from the UI
   // thread. Called from the per-frame tick. No longer writes guest memory
-  // itself -- this mod never touches graphics.stretch_rect directly
+  // itself; this mod never touches graphics.stretch_rect directly
   // anymore, see the constructor's comment.
   void PollMapping() {
     if (!runtime_) {
@@ -466,7 +466,7 @@ class GraphicsSettingsDialog : public rex::ui::ImGuiDialog {
     }
 
     // These are the RIGHT/BOTTOM edges, which is what this overlay's
-    // "width"/"height" parameter has always actually been -- see the header
+    // "width"/"height" parameter has always actually been; see the header
     // comment. The rendered extent is (right - left).
     uint32_t width = ReadGuestU32BE(memory, addr_ + kRightOffset);
     uint32_t height = ReadGuestU32BE(memory, addr_ + kBottomOffset);
@@ -475,10 +475,10 @@ class GraphicsSettingsDialog : public rex::ui::ImGuiDialog {
     // struct reads as garbage/zero until the game's own Settings ->
     // stretch screen has been opened at least once this session (it's
     // presumably lazily initialized there). Since we can write it
-    // unconditionally, don't force the user to visit that screen first --
+    // unconditionally, don't force the user to visit that screen first;
     // just let the buttons below stomp whatever garbage is here.
 
-    // Live guest read, always -- native (src/graphics_settings.cpp) is the
+    // Live guest read, always: native (src/graphics_settings.cpp) is the
     // sole writer of this struct now, so there's no override state of this
     // mod's own to prefer over it, and no torn-read risk from two writers
     // racing.
@@ -521,7 +521,7 @@ class GraphicsSettingsDialog : public rex::ui::ImGuiDialog {
     ImGui::TextUnformatted("Custom:");
 
     // Seed the boxes from the live value exactly once, then leave them
-    // alone -- these are a staging area for a value to type and Apply, not
+    // alone; these are a staging area for a value to type and Apply, not
     // a live mirror, so continuously resyncing them from memory (like the
     // preset/current display above does) would overwrite every keystroke.
     if (!custom_seeded_) {
@@ -534,7 +534,7 @@ class GraphicsSettingsDialog : public rex::ui::ImGuiDialog {
     // start right after it so the two rows line up.
     float label_column = ImGui::CalcTextSize("Height").x + ImGui::GetStyle().ItemSpacing.x;
 
-    // Commit on Enter, on the +/- step buttons, or on focus loss -- NOT on
+    // Commit on Enter, on the +/- step buttons, or on focus loss, NOT on
     // every keystroke, which is what this did before. Per-keystroke apply
     // meant typing a four-digit number pushed every prefix of it into the
     // guest rect: typing "3600" into Height transited 3, 36 and then 360,
@@ -542,7 +542,7 @@ class GraphicsSettingsDialog : public rex::ui::ImGuiDialog {
     // which trips the `twllei` divide-by-zero trap in sub_82588EC8 and hangs
     // the game. ClampEdge() in RequestCustomRatio() is the real backstop for
     // that, but there is no reason to be shoving half-typed numbers at the
-    // guest in the first place -- it also wrote the config file on every
+    // guest in the first place; it also wrote the config file on every
     // keystroke.
     //
     // InputInt with a non-zero step wraps itself in BeginGroup/EndGroup, and
@@ -583,7 +583,7 @@ class GraphicsSettingsDialog : public rex::ui::ImGuiDialog {
     }
     if (lock_clicked) {
       aspect_locked_ = !aspect_locked_;
-      // Capture the ratio from the live, freshly-read value -- not from
+      // Capture the ratio from the live, freshly-read value, not from
       // custom_width_/custom_height_, which only track whatever this
       // overlay last set and can be stale if the actual current aspect got
       // there some other way (e.g. the vanilla in-game controls, or simply
@@ -615,7 +615,7 @@ class GraphicsSettingsDialog : public rex::ui::ImGuiDialog {
  private:
   // Asks the native engine (src/graphics_settings.cpp in NocturneRecomp) to
   // apply and own persisting/reasserting the graphics style, instead of this
-  // mod writing the guest bytes and its own config file directly -- same
+  // mod writing the guest bytes and its own config file directly, the same
   // "publish the request, engine owns the write" shape as RequestPreset/
   // RequestCustomRatio below, needed for the same reason: two independent
   // writers of the same guest bytes (this mod's old TryRestoreStyle and the
@@ -633,10 +633,10 @@ class GraphicsSettingsDialog : public rex::ui::ImGuiDialog {
   // Stages a clicked preset's edges into the UI (so the boxes/lock ratio
   // update immediately, same as the old SetOverride did) and asks the native
   // engine (src/graphics_settings.cpp in NocturneRecomp) to actually apply
-  // and own reasserting it -- see the constructor's comment for why this mod
+  // and own reasserting it; see the constructor's comment for why this mod
   // no longer writes graphics.stretch_rect itself. |preset_index| must match
   // that file's kPresetNames ordering (PSX Default/Big, 16:10 Default/Big/
-  // Huge/Extreme, Stretched -- this mod's own preset catalog is already
+  // Huge/Extreme, Stretched; this mod's own preset catalog is already
   // index-identical to it, solved from these very constants).
   void RequestPreset(int32_t preset_index, uint32_t width, uint32_t height) {
     StageCustomFields(width, height);
@@ -649,7 +649,7 @@ class GraphicsSettingsDialog : public rex::ui::ImGuiDialog {
   }
 
   // Same, for a hand-typed width/height that doesn't match any catalog
-  // preset -- converts to the width_ratio/height_ratio convention
+  // preset: converts to the width_ratio/height_ratio convention
   // src/graphics_settings.cpp's restore/persistence path already uses, and
   // publishes it as a two-double payload (EventPayload only has one f64
   // slot). The struct is copied synchronously by the native subscriber
@@ -672,7 +672,7 @@ class GraphicsSettingsDialog : public rex::ui::ImGuiDialog {
 
   // Shared staging step for both request helpers above: clamps (so the
   // number echoed back into the input boxes and the locked aspect ratio
-  // agree with what the native engine will actually apply -- it clamps the
+  // agree with what the native engine will actually apply, since it clamps the
   // same way, via the same ClampEdge-shaped floor on the custom-ratio path),
   // keeps the custom fields in sync so clicking a preset shows what it set,
   // and updates the locked aspect ratio to whatever was just explicitly
@@ -693,7 +693,7 @@ class GraphicsSettingsDialog : public rex::ui::ImGuiDialog {
   // BOTTOM) coordinate and the opposite
   // edge is derived as |max| - |edge|, so the rendered extent works out to
   // (2 * edge - max): it collapses to zero at edge == max / 2 and inverts
-  // below that. Zero is the dangerous one -- sub_82588EC8 divides by the
+  // below that. Zero is the dangerous one: sub_82588EC8 divides by the
   // extent under a `twllei <extent>, 0` guard, and a guest trap in a
   // recompiled binary hangs the process instead of raising anything anyone
   // can see. At 720p that is edge 640 horizontally / 360 vertically; at
@@ -748,7 +748,7 @@ class GraphicsSettingsDialog : public rex::ui::ImGuiDialog {
 
   // Readability latches. Written by the per-frame tick, read by the UI
   // thread, hence atomic; once set they are never cleared, which is the
-  // whole point -- it means no thread probes page protections (and so takes
+  // whole point: it means no thread probes page protections (and so takes
   // the global critical region) after boot. The countdowns beside them are
   // touched only by the tick thread.
   std::atomic<bool> rect_mapped_{false};

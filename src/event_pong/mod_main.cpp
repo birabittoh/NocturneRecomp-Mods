@@ -1,4 +1,4 @@
-// event_pong mod - event-bus consumer + overlay (F11).
+// event_pong mod: event-bus consumer + overlay (F11).
 //
 // Subscribes to event_ping's "sample.ping" event (see
 // mods_src/event_ping/mod_main.cpp) via rex::system::ModRegistry and shows
@@ -87,7 +87,7 @@ class EventPongDialog : public rex::ui::ImGuiDialog {
         ImGui::Separator();
         ImGui::TextDisabled("Also publishing event_pong.count/period to \"blackboard\"");
       }
-      ImGui::TextDisabled("mods_src/event_pong - press F11 to close");
+      ImGui::TextDisabled("mods_src/event_pong (press F11 to close)");
     }
     ImGui::End();
   }

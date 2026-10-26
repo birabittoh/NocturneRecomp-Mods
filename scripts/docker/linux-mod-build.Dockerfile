@@ -3,7 +3,7 @@
 # prebuilt shared lib inside the SDK) via headers already bundled under
 # sdk/include, so unlike the actual runtime build (see
 # .github/workflows/_build.yml) this doesn't need GTK/audio/etc. dev
-# packages -- just enough to invoke clang++/cmake/ninja.
+# packages, just enough to invoke clang++/cmake/ninja.
 FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 

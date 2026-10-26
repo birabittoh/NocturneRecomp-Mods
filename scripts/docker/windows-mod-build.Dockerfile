@@ -20,7 +20,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # xwin fetches Microsoft's redistributable Windows SDK + CRT/STL headers and
 # import libraries under their published redistribution terms, which
-# `--accept-license` accepts on your behalf -- same mechanism cargo-xwin
+# `--accept-license` accepts on your behalf, the same mechanism cargo-xwin
 # uses for Rust's MSVC cross target.
 ARG XWIN_VERSION=0.6.5
 RUN wget -qO /tmp/xwin.tar.gz \

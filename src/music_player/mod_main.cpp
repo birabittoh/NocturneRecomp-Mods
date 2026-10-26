@@ -1,9 +1,9 @@
-// music_player mod - entry point.
+// music_player mod: entry point.
 //
 // Bridges the F8 audio player (audio_player.cpp/h, moved here unchanged from
 // the base game) to the SDK's mod code-plugin ABI. Uses zero hardcoded guest
-// addresses -- it drives the emulated Xbox XMP app (app id 0xFA), not the
-// guest image -- so this one DLL loads into both the vanilla and TU builds.
+// addresses: it drives the emulated Xbox XMP app (app id 0xFA), not the
+// guest image, so this one DLL loads into both the vanilla and TU builds.
 
 #include <rex/system/mod_plugin.h>
 

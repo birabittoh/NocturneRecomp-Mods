@@ -292,7 +292,7 @@ class AudioPlayerDialog : public rex::ui::ImGuiDialog {
     ImGui::SameLine();
     // Lock toggle: while locked, the game can't switch tracks on its own
     // (e.g. on a room transition) and its volume (e.g. a room fade or a
-    // settings-menu slider) -- only an explicit pick/adjustment from this
+    // settings-menu slider); only an explicit pick/adjustment from this
     // player (or the transport buttons above) changes them.
     bool locked = xmp->locked();
     if (IconButton("##lock", [locked](ImDrawList* dl, ImVec2 p0, ImVec2 p1, ImU32 col) {

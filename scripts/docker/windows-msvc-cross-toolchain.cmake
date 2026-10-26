@@ -4,7 +4,7 @@
 #
 # Needed because the SDK's Windows build (and its rex::runtime import lib)
 # is produced by plain clang++ targeting x86_64-pc-windows-msvc, so a mod
-# must link against the same ABI -- a mingw-w64 cross build would not.
+# must link against the same ABI; a mingw-w64 cross build would not.
 set(CMAKE_SYSTEM_NAME Windows)
 set(CMAKE_SYSTEM_PROCESSOR AMD64)
 

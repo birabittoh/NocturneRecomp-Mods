@@ -1,9 +1,9 @@
-// function_override_demo mod - worked example of overriding the *behavior*
+// function_override_demo mod: worked example of overriding the *behavior*
 // of a recompiled guest function at runtime, not just poking data (see
 // mods_src/ui_color for the data-poke case).
 //
 // Wraps the game's leaderboard write-stats driver (guest address published
-// by mods_src/game_symbols as "leaderboard.write_stats_fn" -- requires that
+// by mods_src/game_symbols as "leaderboard.write_stats_fn"; requires that
 // mod, same as ui_color does for data addresses) with a log line, then
 // calls through to the original implementation so leaderboard writes still
 // happen normally. This demonstrates every piece of the mod-facing API:
@@ -33,7 +33,7 @@ namespace {
 PPCFunc* g_original_write_stats = nullptr;
 
 // Replacement for the guest function driving XSessionWriteStats. Full
-// access to guest registers/state, same as an in-repo REX_HOOK_RAW -- the
+// access to guest registers/state, same as an in-repo REX_HOOK_RAW; the
 // only difference is this is installed by a mod DLL after the exe is
 // already built, rather than baked in at link time.
 extern "C" void FunctionOverrideDemo_WriteStats(PPCContext& ctx, uint8_t* base) {

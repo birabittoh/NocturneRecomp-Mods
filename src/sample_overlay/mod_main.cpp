@@ -1,4 +1,4 @@
-// sample_overlay mod - smallest possible mod code-plugin template.
+// sample_overlay mod: smallest possible mod code-plugin template.
 //
 // Registers a keybind and a tiny ImGui dialog to prove the mod-plugin ABI
 // works end to end: DLL loads, OnCreateDialogs runs, the overlay draws every
@@ -36,7 +36,7 @@ class SampleOverlayDialog : public rex::ui::ImGuiDialog {
     if (ImGui::Begin("Sample Overlay", &visible_)) {
       ImGui::TextUnformatted("Hello from a code mod!");
       ImGui::Text("Frames drawn: %llu", static_cast<unsigned long long>(frame_count_));
-      ImGui::TextDisabled("mods_src/sample_overlay - press F9 to close");
+      ImGui::TextDisabled("mods_src/sample_overlay (press F9 to close)");
     }
     ImGui::End();
   }

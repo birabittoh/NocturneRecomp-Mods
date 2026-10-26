@@ -1,4 +1,4 @@
-# rexmod.cmake - shared CMake helper for mods_src/* code mods.
+# rexmod.cmake: shared CMake helper for mods_src/* code mods.
 #
 # Include this (after project()) from a mod's own CMakeLists.txt, then call
 # rexmod_add_plugin() instead of add_library(). Keeps every mod's build
@@ -20,7 +20,7 @@ function(rexmod_add_plugin target_name)
     # The game ships only the matching-variant runtime DLLs next to its exe
     # and the mod loader resolves <stem><postfix>.dll for the host config
     # first (see rex::system::LoadModPlugin), so the output binary must
-    # carry the build config's postfix -- RelWithDebInfo produces <name>rd.dll
+    # carry the build config's postfix: RelWithDebInfo produces <name>rd.dll
     # linking rexruntimerd.dll. Release keeps a bare name; Debug gets "d"
     # (CMake's default anyway).
     #
@@ -35,11 +35,11 @@ function(rexmod_add_plugin target_name)
     )
     # PRIVATE: a mod plugin has no consumers of its own. Linking rex::runtime
     # (never the rexcore/rexui OBJECT libraries) reuses the same in-process
-    # ImGui drawer, keybind registry, and kernel state as the host exe --
-    # mirrors how the rexgpu-xenos GPU plugin links against rexruntime.
+    # ImGui drawer, keybind registry, and kernel state as the host exe,
+    # mirroring how the rexgpu-xenos GPU plugin links against rexruntime.
     target_link_libraries(${target_name} PRIVATE rex::runtime)
     # Header-only helpers shared across mods (e.g. <rexmod/text_patch.h>)
-    # live under mods_src/common/include -- every mod gets this for free
+    # live under mods_src/common/include; every mod gets this for free
     # rather than each needing its own relative include path.
     # CMAKE_CURRENT_FUNCTION_LIST_DIR (not CMAKE_CURRENT_LIST_DIR, which
     # inside a function resolves against the *caller's* CMakeLists.txt)

@@ -2,7 +2,7 @@
 """Builds every mod under src/ and assembles it into mods/<name>/.
 
 A src/<name>/ directory with no CMakeLists.txt is an asset-only mod (game
-file/texture/shader replacements, no native code) -- see NocturneRecomp's
+file/texture/shader replacements, no native code); see NocturneRecomp's
 docs/making-mods.md. It's copied into mods/<name>/ as-is, once, with no
 per-platform build step and no `platform` key written into its mod.toml.
 
@@ -15,7 +15,7 @@ mods/<name>/code/<platform>/<name>.dll (or lib<name>.so), one subdirectory
 per platform, alongside mod.toml and icon.png at the mod root.
 
 The code/<platform>/ nesting (rather than a flat code/ like
-NocturneRecomp's own mod loader expects -- see rex::system::LoadModPlugin)
+NocturneRecomp's own mod loader expects; see rex::system::LoadModPlugin)
 is deliberate: it lets one mod folder, and therefore one release zip (see
 scripts/merge_and_package.py), carry all three platforms' binaries side by
 side without linux-x64 and linux-arm64 colliding on the same lib<name>.so
@@ -27,7 +27,7 @@ This repo tracks three platforms: windows-x64, linux-x64, linux-arm64. By
 default every mod is built for whichever platform(s) you pass via --target
 (default: just the host's own platform, matching how CI's three-runner
 matrix builds one platform per job, then merges all three into per-mod
-release zips -- see .github/workflows/_build.yml).
+release zips; see .github/workflows/_build.yml).
 
 Each target's SDK lives in its own subdirectory (<sdk-root>/win-amd64,
 <sdk-root>/linux-amd64, <sdk-root>/linux-arm64), fetched via
@@ -41,7 +41,7 @@ this reason).
 
 After building, each mod's `platform` key in mods/<name>/mod.toml (the built
 copy, not the one under src/) is (re)written to record which platform(s)
-mods/<name>/code/ actually ships a binary for right now -- this key is
+mods/<name>/code/ actually ships a binary for right now. This key is
 script-managed, not something a mod author sets by hand, and never touches
 the src/ manifest.
 """
@@ -56,7 +56,7 @@ import sys
 
 # Mods build Release (plain name) by default.
 # Pass --config RelWithDebInfo to build against a host built RelWithDebInfo
-# instead -- the mod loader (rex::system::LoadModPlugin) resolves
+# instead; the mod loader (rex::system::LoadModPlugin) resolves
 # <stem><postfix>.dll for the host's own config before falling back to a
 # bare name, and CMake targets pick up the matching postfix automatically
 # via CMAKE_<CONFIG>_POSTFIX set in src/common/mod_cmake/rexmod.cmake.
@@ -180,7 +180,7 @@ def resolve_native_sdk_dir(sdk_root, sdk_dir, plat):
 
 def require_sdk(sdk_dir, plat):
     if not is_valid_sdk(sdk_dir):
-        print(f"error: {plat} SDK not found at '{sdk_dir}' — run "
+        print(f"error: {plat} SDK not found at '{sdk_dir}'; run "
               f"'python scripts/download-sdk.py {sdk_dir} --pinned --platform "
               f"{PLATFORM_INFO[plat]['sdk_subdir']}' first", file=sys.stderr)
         sys.exit(1)
@@ -238,7 +238,7 @@ def build_mod_windows_cross(mod_src_dir, name, sdk_dir, root, config):
 def assemble_mod(mod_src_dir, name, binary_path, plat, root, postfix):
     # Binaries land under code/<platform>/ rather than flat code/, since
     # linux-x64 and linux-arm64 both produce lib<name>.so and would
-    # otherwise collide -- this also lets a single mod folder (and
+    # otherwise collide. This also lets a single mod folder (and
     # therefore a single release zip, see merge_and_package.py) carry all
     # three platforms' binaries at once. Installing into a NocturneRecomp
     # game copy means flattening the platform you want into code/ directly
@@ -246,7 +246,7 @@ def assemble_mod(mod_src_dir, name, binary_path, plat, root, postfix):
     info = PLATFORM_INFO[plat]
     dest_dir = os.path.join(root, "mods", name)
 
-    # Copy the whole mod_src_dir tree first, not just mod.toml/icon.png --
+    # Copy the whole mod_src_dir tree first, not just mod.toml/icon.png:
     # mods can load arbitrary runtime assets (e.g. foxy_jumpscare's
     # assets/audio.wav and assets/frames/*.png) relative to their mod root,
     # so anything short of the full tree risks silently dropping files a
@@ -274,7 +274,7 @@ def build_targets_via_docker(plat, names, root, sdk_dir, config):
         dockerfile = os.path.join(root, "scripts", "docker", "windows-mod-build.Dockerfile")
         image = WINDOWS_CROSS_DOCKER_IMAGE
     else:
-        print(f"error: '{plat}' has no Docker cross-build path -- build it on a native "
+        print(f"error: '{plat}' has no Docker cross-build path; build it on a native "
               f"linux-arm64 host instead", file=sys.stderr)
         sys.exit(1)
 
@@ -373,7 +373,7 @@ def main():
     host = host_plat()
     platforms = args.targets or ([host] if host else [])
     if code_names and not platforms:
-        print("error: couldn't detect a native platform for this host -- pass --target explicitly",
+        print("error: couldn't detect a native platform for this host; pass --target explicitly",
               file=sys.stderr)
         sys.exit(1)
 
@@ -403,7 +403,7 @@ def main():
                     assemble_mod(mod_src_dir, name, binary, plat, root, postfix)
 
             else:
-                print(f"host can't build '{plat}' directly -- falling back to Docker")
+                print(f"host can't build '{plat}' directly, falling back to Docker")
                 build_targets_via_docker(plat, code_names, root, sdk_dir, args.config)
 
     for name in code_names:

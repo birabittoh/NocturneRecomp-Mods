@@ -1,12 +1,12 @@
-// ui_color mod - overlay (F7) with a color picker for the game's UI accent
+// ui_color mod: overlay (F7) with a color picker for the game's UI accent
 // color, synced live with guest memory.
 //
 // The SOTN "Settings -> Accent Color" setting is three consecutive big-endian
-// uint32 fields (R, G, B; each 0-15) in the XEX's static data -- see
+// uint32 fields (R, G, B; each 0-15) in the XEX's static data; see
 // src/accent_color.cpp for the base game's read-only watcher that themes the
 // overlay from this same struct. This mod adds the write side: a picker that
 // pokes new values into that struct. Because the base game (and its watcher)
-// read the struct every frame, writes here propagate automatically -- no IPC
+// read the struct every frame, writes here propagate automatically; no IPC
 // needed.
 //
 // The struct's guest address differs between the vanilla and title-update
@@ -121,7 +121,7 @@ class UiColorDialog : public rex::ui::ImGuiDialog {
     // Latched rather than re-checked every frame: a genuine (0, 0, 0) accent
     // color (i.e. black, picked by the user) reads identically to "the game
     // hasn't populated the struct yet". Once we've seen one real value,
-    // trust all subsequent reads -- including black -- instead of flipping
+    // trust all subsequent reads (including black) instead of flipping
     // back to the placeholder text.
     if (valid_range && (r != 0 || g != 0 || b != 0)) {
       ever_populated_ = true;
@@ -135,7 +135,7 @@ class UiColorDialog : public rex::ui::ImGuiDialog {
     }
 
     // Only overwrite our local color from memory while the user isn't
-    // actively dragging a widget here -- otherwise a slow guest-side refresh
+    // actively dragging a widget here; otherwise a slow guest-side refresh
     // could fight the user's own drag. This also picks up changes made
     // through the game's own Settings -> Accent Color menu.
     if (!ImGui::IsAnyItemActive()) {
@@ -146,7 +146,7 @@ class UiColorDialog : public rex::ui::ImGuiDialog {
 
     ImGui::TextUnformatted("Accent color:");
     // ColorPicker3's built-in numeric readout only ever shows 0-255 (or
-    // 0.00-1.00 with the Float flag) -- there's no ImGui option for a custom
+    // 0.00-1.00 with the Float flag); there's no ImGui option for a custom
     // channel range. Hide it (NoInputs) since the 0-15 sliders below already
     // give the exact game value; showing both would just be two different
     // scales for the same channels.

@@ -1,10 +1,10 @@
-// bus_inspector mod - live log overlay (F5) for the shared mod event bus.
+// bus_inspector mod: live log overlay (F5) for the shared mod event bus.
 //
 // Subscribes to every event name used by the other event-bus example mods
 // ("sample.ping" from event_ping, "blackboard.set"/"blackboard.delete"/
 // "blackboard.changed" from blackboard/event_pong) and renders a scrolling
 // log of what it observed: event name, the u64/f64 fields, and the byte
-// payload as text. Deliberately has no `requires` on any of them -- it just
+// payload as text. Deliberately has no `requires` on any of them; it just
 // shows whatever traffic happens to exist, including none.
 //
 // The interesting bit this mod demonstrates that no other example does:
@@ -18,7 +18,7 @@
 // Threading: exactly like event_pong/blackboard, Subscribe callbacks run on
 // whatever thread published the event (the command-processor thread for
 // every event in this project, since they all originate from event_ping's
-// tick or blackboard's own republish) -- never touch ImGui there. This mod
+// tick or blackboard's own republish), so never touch ImGui there. This mod
 // only appends a formatted line to a mutex-guarded deque; OnDraw (UI thread)
 // renders a snapshot under the same lock.
 

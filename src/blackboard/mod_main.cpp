@@ -1,9 +1,9 @@
-// blackboard mod - shared key/value store over the mod event bus, with a
+// blackboard mod: shared key/value store over the mod event bus, with a
 // viewer/editor overlay (F12).
 //
 // Owns a single retained std::map<std::string, std::string>, guarded by a
 // mutex. Other mods write to it purely through rex::system::ModRegistry
-// events -- no header, no linked symbol, no `requires` -- so any mod (even a
+// events (no header, no linked symbol, no `requires`), so any mod (even a
 // binary-only third-party one) can participate just by publishing to the
 // right event name:
 //
@@ -12,7 +12,7 @@
 //   "blackboard.clear"  (payload ignored)
 //
 // After every mutation this mod publishes "blackboard.changed" (u64 = new
-// size) for anything that wants to react without polling -- see
+// size) for anything that wants to react without polling; see
 // mods_src/bus_inspector, which logs it. It deliberately does not subscribe
 // to its own "blackboard.changed" (that would recurse forever the moment
 // something else published it back).
@@ -21,12 +21,12 @@
 // zero hard dependency on this mod being enabled at all.
 //
 // Threading: Subscribe callbacks run on whatever thread calls Publish (for
-// event_pong's writes, the command-processor thread -- see
+// event_pong's writes, the command-processor thread; see
 // mod_registry.h's DispatchTick comment), never the UI thread. All access to
 // entries_ goes through mutex_ for that reason; OnDraw (UI thread) takes a
 // full copy under lock before rendering, and any edits made in OnDraw itself
 // (the built-in editor UI) also go through the same lock, not through the
-// event path -- this mod owns the data outright, so it doesn't need to
+// event path: this mod owns the data outright, so it doesn't need to
 // publish events to itself.
 
 #include <rex/system/mod_plugin.h>
@@ -132,7 +132,7 @@ class BlackboardDialog : public rex::ui::ImGuiDialog {
         entries_.clear();
       }
       ImGui::SameLine();
-      ImGui::TextDisabled("mods_src/blackboard - press F12 to close");
+      ImGui::TextDisabled("mods_src/blackboard (press F12 to close)");
     }
     ImGui::End();
   }

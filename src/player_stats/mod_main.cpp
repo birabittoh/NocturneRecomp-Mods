@@ -1,11 +1,11 @@
-// player_stats mod - overlay (F5) mirroring the character screen's stats
+// player_stats mod: overlay (F5) mirroring the character screen's stats
 // live: HP/Heart/MP, STR/CON/INT/LCK, level, exp, gold, kills, rooms, and
 // playtime. Mirrors live by default; an "Edit mode" checkbox switches every
 // field to an editable input that writes straight back to guest memory.
 //
 // Looks up the shared "player.stats" base address published by
 // mods_src/game_symbols (see its mod_main.cpp for the full struct layout and
-// how it was found -- an exact-pattern scan for the STR/CON/INT/LCK sequence
+// how it was found: an exact-pattern scan for the STR/CON/INT/LCK sequence
 // shown consecutively on the character screen) instead of hardcoding it.
 // ROOMS is looked up separately, as "player.rooms" -- it lives at its own
 // address, unrelated to the "player.stats" struct (see game_symbols's +0x74
@@ -53,7 +53,7 @@ constexpr uint32_t kHeartCurrentOffset = 0x08;
 constexpr uint32_t kHeartMaxOffset = 0x0c;
 constexpr uint32_t kMpCurrentOffset = 0x10;
 constexpr uint32_t kMpMaxOffset = 0x14;
-// First of two identical-so-far STR/CON/INT/LCK copies (+0x18 and +0x38) --
+// First of two identical-so-far STR/CON/INT/LCK copies (+0x18 and +0x38);
 // see game_symbols/mod_main.cpp: which copy is "base" vs "equipped/
 // effective" isn't disambiguated yet, so this mirrors copy #1 arbitrarily.
 constexpr uint32_t kStrOffset = 0x18;
@@ -64,7 +64,7 @@ constexpr uint32_t kLevelOffset = 0x48;
 constexpr uint32_t kExpOffset = 0x4c;
 constexpr uint32_t kGoldOffset = 0x50;
 constexpr uint32_t kKillsOffset = 0x54;
-// NOT rooms -- see game_symbols/mod_main.cpp's +0x74 note: this was
+// NOT rooms; see game_symbols/mod_main.cpp's +0x74 note: this was
 // originally assumed to be the on-screen ROOMS counter because it happened
 // to read the same value, but writing to it (via this mod's now-removed
 // edit-mode field) didn't move ROOMS at all and instead made STR/CON/INT/
@@ -392,7 +392,7 @@ class PlayerStatsDialog : public rex::ui::ImGuiDialog {
   }
 
  private:
-  // Seeds every edit_* field from the just-read live values -- called once
+  // Seeds every edit_* field from the just-read live values. Called once
   // on the transition into edit mode, not every frame, so typing into a
   // field doesn't get stomped by the next frame's live re-read.
   void SeedEditFields(uint32_t hp_current, uint32_t hp_max, uint32_t heart_current,
@@ -422,7 +422,7 @@ class PlayerStatsDialog : public rex::ui::ImGuiDialog {
   // Editable int field that writes straight back to guest memory on every
   // change (InputInt returns true on each keystroke that changes the value,
   // same immediate-apply convention as mods_src/graphics_settings's custom
-  // width/height fields). Negative input is clamped to 0 before writing --
+  // width/height fields). Negative input is clamped to 0 before writing;
   // the field is a uint32 in memory.
   void EditableField(rex::memory::Memory* memory, const char* label, uint32_t offset,
                       int* edit_value) {
