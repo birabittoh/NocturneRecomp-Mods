@@ -51,10 +51,10 @@
 // a "graphics_settings.request_style" request (see RequestGraphicsStyle) and
 // read graphics.style live to show the current choice.
 //
-// Like mods_src/ui_color, this mod looks addresses up by name from the
-// shared registry mods_src/game_symbols publishes into, instead of
-// hardcoding them, so it keeps working if the vanilla/TU split is ever
-// filled in there.
+// Like mods_src/ui_color, this mod registers its addresses (copied from
+// mods_src/game_symbols' "graphics.stretch_rect" and "graphics.style")
+// under its own names in the shared registry and looks them up from there,
+// so it doesn't require game_symbols. Both are vanilla-only so far.
 
 #include <rex/system/mod_plugin.h>
 
@@ -77,6 +77,12 @@
 #include <rex/ui/keybinds.h>
 
 namespace {
+
+// Same addresses game_symbols publishes as "graphics.stretch_rect" and
+// "graphics.style", registered under private names so they never collide
+// with its registrations.
+constexpr uint32_t kScreenStretchRectAddrVanilla = 0x82882C68u;
+constexpr uint32_t kGraphicsStyleAddrVanilla = 0x828B146Cu;
 
 // LTRB, per the header comment above. Only RIGHT/BOTTOM are used directly by
 // this file now (for the live display read); LEFT/TOP are derived by the
@@ -325,16 +331,16 @@ class GraphicsSettingsDialog : public rex::ui::ImGuiDialog {
   ~GraphicsSettingsDialog() override { rex::ui::UnregisterBind("bind_graphics_settings"); }
 
   // Called once KernelState/the executable module are live (see
-  // GraphicsSettingsMod::OnModuleLaunched). Looks up the addresses published
-  // by game_symbols (see mods_src/game_symbols/mod_main.cpp), which resolves
-  // vanilla vs TU for us.
+  // GraphicsSettingsMod::OnModuleLaunched). Looks up the addresses registered
+  // in GraphicsSettingsMod::OnCreateDialogs; the registry resolves vanilla vs
+  // TU.
   void ResolveAddress() {
     if (runtime_ && runtime_->mod_registry()) {
-      if (auto addr = runtime_->mod_registry()->FindAddress("graphics.stretch_rect")) {
+      if (auto addr = runtime_->mod_registry()->FindAddress("graphics_settings.stretch_rect")) {
         addr_ = *addr;
         addr_resolved_ = true;
       }
-      if (auto addr = runtime_->mod_registry()->FindAddress("graphics.style")) {
+      if (auto addr = runtime_->mod_registry()->FindAddress("graphics_settings.style")) {
         style_addr_ = *addr;
         style_addr_resolved_ = true;
       }
@@ -762,6 +768,11 @@ class GraphicsSettingsMod : public rex::system::IModPlugin {
   explicit GraphicsSettingsMod(rex::Runtime* runtime) : runtime_(runtime) {}
 
   void OnCreateDialogs(rex::ui::ImGuiDrawer* drawer) override {
+    if (runtime_ && runtime_->mod_registry()) {
+      auto* registry = runtime_->mod_registry();
+      registry->RegisterAddress("graphics_settings.stretch_rect", kScreenStretchRectAddrVanilla);
+      registry->RegisterAddress("graphics_settings.style", kGraphicsStyleAddrVanilla);
+    }
     dialog_ = std::make_unique<GraphicsSettingsDialog>(drawer, runtime_);
   }
 
