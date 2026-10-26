@@ -10,13 +10,11 @@
 // needed.
 //
 // The struct's guest address differs between the vanilla and title-update
-// (TU) builds, because a TU relocates the whole image. Rather than
-// hardcoding either address itself, this mod looks it up by name
-// ("ui.accent_color") from the shared registry that mods_src/game_symbols
-// publishes into (rex::system::ModRegistry), which resolves the vanilla/TU
-// split internally. mod.toml declares `requires = "game_symbols"` so the SDK
-// guarantees that mod is enabled and loaded first -- see
-// docs/making-mods.md's "Library mods and the shared registry" section.
+// (TU) builds, because a TU relocates the whole image. This mod registers
+// both addresses (copied from mods_src/game_symbols' "ui.accent_color")
+// under its own name in the shared registry (rex::system::ModRegistry),
+// which resolves the vanilla/TU split at lookup time, so it doesn't require
+// game_symbols.
 
 #include <rex/system/mod_plugin.h>
 
@@ -35,6 +33,11 @@
 #include <rex/ui/keybinds.h>
 
 namespace {
+
+// Same addresses game_symbols publishes as "ui.accent_color", registered
+// under a private name so they never collide with its registration.
+constexpr uint32_t kAccentAddrVanilla = 0x83173CC8u;
+constexpr uint32_t kAccentAddrTU = 0x83173A88u;
 
 constexpr uint32_t kRedOffset = 0;
 constexpr uint32_t kGreenOffset = 4;
@@ -67,12 +70,11 @@ class UiColorDialog : public rex::ui::ImGuiDialog {
   ~UiColorDialog() override { rex::ui::UnregisterBind("bind_ui_color"); }
 
   // Called once KernelState/the executable module are live (see
-  // UiColorMod::OnModuleLaunched). Looks up the accent address published by
-  // game_symbols (see mods_src/game_symbols/mod_main.cpp), which resolves
-  // vanilla vs TU for us.
+  // UiColorMod::OnModuleLaunched). Looks up the accent address registered in
+  // UiColorMod::OnCreateDialogs; the registry resolves vanilla vs TU.
   void ResolveAddress() {
     if (runtime_ && runtime_->mod_registry()) {
-      if (auto addr = runtime_->mod_registry()->FindAddress("ui.accent_color")) {
+      if (auto addr = runtime_->mod_registry()->FindAddress("ui_color.accent_color")) {
         addr_ = *addr;
         addr_resolved_ = true;
       }
@@ -210,13 +212,17 @@ class UiColorMod : public rex::system::IModPlugin {
   explicit UiColorMod(rex::Runtime* runtime) : runtime_(runtime) {}
 
   void OnCreateDialogs(rex::ui::ImGuiDrawer* drawer) override {
+    if (runtime_ && runtime_->mod_registry()) {
+      runtime_->mod_registry()->RegisterAddress("ui_color.accent_color", kAccentAddrVanilla,
+                                                kAccentAddrTU);
+    }
     dialog_ = std::make_unique<UiColorDialog>(drawer, runtime_);
   }
 
   void OnModuleLaunched() override {
     // KernelState is live now, but the lookup itself is just a registry read
-    // (game_symbols already published the address in its own
-    // OnCreateDialogs, dispatched before this).
+    // (the address was registered in OnCreateDialogs, dispatched before
+    // this).
     if (dialog_) {
       dialog_->ResolveAddress();
     }
