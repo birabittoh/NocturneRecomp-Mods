@@ -3,13 +3,18 @@
 // playtime. Mirrors live by default; an "Edit mode" checkbox switches every
 // field to an editable input that writes straight back to guest memory.
 //
-// Looks up the shared "player.stats" base address published by
-// mods_src/game_symbols (see its mod_main.cpp for the full struct layout and
+// Self-contained: the vanilla/TU addresses below (copied from
+// mods_src/game_symbols, see its mod_main.cpp for the full struct layout and
 // how it was found: an exact-pattern scan for the STR/CON/INT/LCK sequence
-// shown consecutively on the character screen) instead of hardcoding it.
-// ROOMS is looked up separately, as "player.rooms" -- it lives at its own
-// address, unrelated to the "player.stats" struct (see game_symbols's +0x74
-// note for the field that was originally, incorrectly, assumed to be it).
+// shown consecutively on the character screen) are registered under this
+// mod's own names, so the registry resolves vanilla vs TU without requiring
+// game_symbols. ROOMS lives at its own address, unrelated to the stats
+// struct (see game_symbols's +0x74 note for the field that was originally,
+// incorrectly, assumed to be it).
+//
+// The "Level Up" button publishes "player.request_level_up"; NocturneRecomp
+// applies it from its own per-frame hook (mods can no longer override
+// recompiled functions).
 //
 // A "Game Cleared" checkbox toggles the in-memory game-clear flag
 // (dword_83133AFC), which must be non-zero for Richter mode to activate
@@ -23,18 +28,14 @@
 #include <rex/system/mod_plugin.h>
 
 #include <algorithm>
-#include <atomic>
 #include <cstdint>
 #include <cstdio>
 #include <memory>
 
 #include <imgui.h>
 
-#include <rex/logging.h>
 #include <rex/memory/utils.h>
-#include <rex/ppc/context.h>
 #include <rex/runtime.h>
-#include <rex/system/function_dispatcher.h>
 #include <rex/system/kernel_state.h>
 #include <rex/system/mod_registry.h>
 #include <rex/system/xmemory.h>
@@ -44,8 +45,18 @@
 
 namespace {
 
-// Offsets into the "player.stats" struct published by game_symbols. Only the
-// fields game_symbols was able to identify are read here; see that mod's
+// Same addresses game_symbols publishes as "player.stats", "player.rooms" and
+// "game.clear_flag" (TU = vanilla - 0x240). Registered under private names so
+// they never collide with game_symbols' own registrations.
+constexpr uint32_t kPlayerStatsAddrVanilla = 0x83174B7Cu;
+constexpr uint32_t kPlayerStatsAddrTU = 0x8317493Cu;
+constexpr uint32_t kRoomsAddrVanilla = 0x83164F10u;
+constexpr uint32_t kRoomsAddrTU = 0x83164CD0u;
+constexpr uint32_t kGameClearFlagAddrVanilla = 0x83133AFCu;
+constexpr uint32_t kGameClearFlagAddrTU = 0x831338BCu;
+
+// Offsets into the player-stats struct. Only the fields game_symbols was
+// able to identify are read here; see that mod's
 // mod_main.cpp for the full offset table, including the unidentified gaps.
 constexpr uint32_t kHpCurrentOffset = 0x00;
 constexpr uint32_t kHpMaxOffset = 0x04;
@@ -93,74 +104,6 @@ std::string ToHex(uint64_t value, int width) {
   return buf;
 }
 
-// "Level Up" button state -- set from the ImGui overlay (host/render thread)
-// and consumed from the hooked app.fixed_timestep_tick_fn (guest thread),
-// mirroring mods_src/resolution_preset_native's cross-thread request
-// pattern: the overlay can't safely call a guest function or touch a
-// PPCContext itself, so it just flags a request and a per-frame guest-side
-// hook picks it up on its next tick, where a real, valid PPCContext exists.
-std::atomic<bool> g_levelup_requested{false};
-
-uint32_t g_stats_addr = 0;
-uint32_t g_exp_table_addr = 0;
-PPCFunc* g_level_up_tick_fn = nullptr;
-PPCFunc* g_original_perframe_fn = nullptr;
-
-// Applies exactly one real, in-game level-up by writing exp up to the
-// current level's threshold (see kExpToLevelTableAddrVanilla in
-// mods_src/game_symbols) and calling the game's own level-up tick function
-// (player.level_up_tick_fn) -- NOT a fabricated stat write. That function
-// rolls HP/MP max growth and a random subset of STR/CON/INT/LCK itself,
-// exactly like a real exp-triggered level-up, so other stats moving besides
-// LEVEL is expected.
-void ApplyPendingLevelUp(PPCContext& ctx, uint8_t* base) {
-  if (!g_stats_addr || !g_exp_table_addr || !g_level_up_tick_fn) {
-    return;
-  }
-  auto* ks = rex::system::kernel_state();
-  auto* memory = ks ? ks->memory() : nullptr;
-  if (!memory) {
-    return;
-  }
-
-  uint32_t level = ReadGuestU32BE(memory, g_stats_addr + kLevelOffset);
-  if (level >= 99) {
-    REXLOG_INFO("[player_stats] Level Up requested at max level (99); ignoring");
-    return;
-  }
-
-  uint32_t needed = ReadGuestU32BE(memory, g_exp_table_addr + level * 4);
-  uint32_t exp = ReadGuestU32BE(memory, g_stats_addr + kExpOffset);
-  if (exp < needed) {
-    WriteGuestU32BE(memory, g_stats_addr + kExpOffset, needed);
-  }
-
-  g_level_up_tick_fn(ctx, base);
-
-  uint32_t new_level = ReadGuestU32BE(memory, g_stats_addr + kLevelOffset);
-  REXLOG_INFO("[player_stats] Level Up: {} -> {}", level, new_level);
-}
-
-// Hooks render.per_frame_conversion_fn (ticks every frame during actual 3D
-// gameplay rendering -- not app.fixed_timestep_tick_fn, which is already
-// claimed by NocturneRecomp's own built-in src/graphics_settings.cpp and
-// can't be double-overridden) purely to get a live, valid PPCContext to
-// call player.level_up_tick_fn from -- same trick as
-// mods_src/resolution_preset_native's ResolutionPresetNative_PerFrame. Full
-// context snapshot/restore around the excursion since this is an unplanned
-// nested call the compiler didn't account for.
-extern "C" void PlayerStats_PerFrame(PPCContext& ctx, uint8_t* base) {
-  if (g_levelup_requested.exchange(false)) {
-    PPCContext saved = ctx;
-    ApplyPendingLevelUp(ctx, base);
-    ctx = saved;
-  }
-
-  if (g_original_perframe_fn) {
-    g_original_perframe_fn(ctx, base);
-  }
-}
-
 class PlayerStatsDialog : public rex::ui::ImGuiDialog {
  public:
   PlayerStatsDialog(rex::ui::ImGuiDrawer* drawer, rex::Runtime* runtime)
@@ -173,25 +116,22 @@ class PlayerStatsDialog : public rex::ui::ImGuiDialog {
   ~PlayerStatsDialog() override { rex::ui::UnregisterBind("bind_player_stats"); }
 
   // Called once KernelState/the executable module are live (see
-  // PlayerStatsMod::OnModuleLaunched). Looks up the address published by
-  // game_symbols, which resolves vanilla vs TU for us.
+  // PlayerStatsMod::OnModuleLaunched). Looks up the addresses registered in
+  // PlayerStatsMod::OnCreateDialogs; the registry resolves vanilla vs TU.
   void ResolveAddress() {
     if (runtime_ && runtime_->mod_registry()) {
-      if (auto addr = runtime_->mod_registry()->FindAddress("player.stats")) {
+      if (auto addr = runtime_->mod_registry()->FindAddress("player_stats.stats")) {
         addr_ = *addr;
         addr_resolved_ = true;
       }
-      if (auto addr = runtime_->mod_registry()->FindAddress("player.rooms")) {
+      if (auto addr = runtime_->mod_registry()->FindAddress("player_stats.rooms")) {
         rooms_addr_ = *addr;
         rooms_addr_resolved_ = true;
       }
-      if (auto addr = runtime_->mod_registry()->FindAddress("game.clear_flag")) {
+      if (auto addr = runtime_->mod_registry()->FindAddress("player_stats.clear_flag")) {
         clear_flag_addr_ = *addr;
         clear_flag_addr_resolved_ = true;
       }
-    }
-    if (addr_resolved_) {
-      g_stats_addr = addr_;
     }
   }
 
@@ -238,7 +178,7 @@ class PlayerStatsDialog : public rex::ui::ImGuiDialog {
     uint32_t playtime_minutes = ReadGuestU32BE(memory, addr_ + kPlaytimeMinutesOffset);
     uint32_t playtime_seconds = ReadGuestU32BE(memory, addr_ + kPlaytimeSecondsOffset);
 
-    // "player.rooms" is a separate address from the "player.stats" struct
+    // ROOMS is a separate address from the player-stats struct
     // above (see game_symbols/mod_main.cpp), so it gets its own resolved-ness
     // and readability check rather than sharing addr_'s.
     bool rooms_readable = false;
@@ -277,7 +217,9 @@ class PlayerStatsDialog : public rex::ui::ImGuiDialog {
     ImGui::SameLine();
     ImGui::BeginDisabled(level >= 99);
     if (ImGui::Button("Level Up")) {
-      g_levelup_requested.store(true, std::memory_order_release);
+      // NocturneRecomp owns the level-up (it needs a live guest context): it
+      // queues this request and applies it on its next per-frame tick.
+      runtime_->mod_registry()->Publish("player.request_level_up", {});
     }
     ImGui::EndDisabled();
     ImGui::Separator();
@@ -430,7 +372,7 @@ class PlayerStatsDialog : public rex::ui::ImGuiDialog {
   }
 
   // Same as EditableField, but for an address that isn't an offset into the
-  // "player.stats" struct -- e.g. "player.rooms", which is its own
+  // player-stats struct, e.g. ROOMS, which is its own
   // standalone address elsewhere in memory (see game_symbols/mod_main.cpp).
   void EditableFieldAbs(rex::memory::Memory* memory, const char* label, uint32_t guest_address,
                         int* edit_value) {
@@ -481,6 +423,13 @@ class PlayerStatsMod : public rex::system::IModPlugin {
   explicit PlayerStatsMod(rex::Runtime* runtime) : runtime_(runtime) {}
 
   void OnCreateDialogs(rex::ui::ImGuiDrawer* drawer) override {
+    if (runtime_ && runtime_->mod_registry()) {
+      auto* registry = runtime_->mod_registry();
+      registry->RegisterAddress("player_stats.stats", kPlayerStatsAddrVanilla, kPlayerStatsAddrTU);
+      registry->RegisterAddress("player_stats.rooms", kRoomsAddrVanilla, kRoomsAddrTU);
+      registry->RegisterAddress("player_stats.clear_flag", kGameClearFlagAddrVanilla,
+                                kGameClearFlagAddrTU);
+    }
     dialog_ = std::make_unique<PlayerStatsDialog>(drawer, runtime_);
   }
 
@@ -488,57 +437,11 @@ class PlayerStatsMod : public rex::system::IModPlugin {
     if (dialog_) {
       dialog_->ResolveAddress();
     }
-    if (!runtime_ || !runtime_->mod_registry() || !runtime_->function_dispatcher()) {
-      return;
-    }
-    auto* dispatcher = runtime_->function_dispatcher();
-    auto* registry = runtime_->mod_registry();
-
-    if (auto addr = registry->FindAddress("player.exp_to_level_table")) {
-      g_exp_table_addr = *addr;
-    }
-    if (auto addr = registry->FindAddress("player.level_up_tick_fn")) {
-      g_level_up_tick_fn = dispatcher->GetFunction(*addr);
-    }
-    if (!g_exp_table_addr || !g_level_up_tick_fn) {
-      REXLOG_WARN(
-          "[player_stats] player.exp_to_level_table/player.level_up_tick_fn not published; "
-          "Level Up button will do nothing");
-    }
-
-    // render.per_frame_conversion_fn, not app.fixed_timestep_tick_fn: the
-    // latter is already claimed by NocturneRecomp's own built-in
-    // src/graphics_settings.cpp (OverrideFunction is exclusive, so a second
-    // claim on the same address always fails). This address is unclaimed
-    // and, per game_symbols' own caveat, only ticks during actual 3D
-    // gameplay rendering -- which is exactly when leveling up makes sense
-    // anyway (not while a menu is open).
-    if (auto addr = registry->FindAddress("render.per_frame_conversion_fn")) {
-      perframe_addr_ = *addr;
-      if (!dispatcher->OverrideFunction(perframe_addr_, &PlayerStats_PerFrame,
-                                        &g_original_perframe_fn)) {
-        REXLOG_WARN("[player_stats] OverrideFunction failed for {:08X} (per-frame); "
-                    "Level Up button will do nothing",
-                    perframe_addr_);
-        perframe_addr_ = 0;
-      }
-    } else {
-      REXLOG_WARN(
-          "[player_stats] render.per_frame_conversion_fn not published; Level Up button will "
-          "do nothing");
-    }
-  }
-
-  void OnShutdown() override {
-    if (perframe_addr_ && runtime_ && runtime_->function_dispatcher()) {
-      runtime_->function_dispatcher()->RestoreFunction(perframe_addr_, g_original_perframe_fn);
-    }
   }
 
  private:
   rex::Runtime* runtime_ = nullptr;
   std::unique_ptr<PlayerStatsDialog> dialog_;
-  uint32_t perframe_addr_ = 0;
 };
 
 }  // namespace
