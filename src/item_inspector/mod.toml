@@ -1,0 +1,7 @@
+manifest_version = 2
+name = "Item Inspector"
+version = "1.0.0"
+game_version = "1.5.0"
+author = "BiRabittoh"
+description = "Overlay (F7) showing the live player status through the game's Player API: relic flags, item counts and order, equipment slots, stats, and a log of the player events."
+code = "item_inspector"
