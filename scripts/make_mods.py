@@ -23,7 +23,7 @@ rexruntimerd.dll (see CONFIG_POSTFIXES below).
 The code/<platform>/ nesting (rather than a flat code/ like the mod
 loader expects; see rex::system::LoadModPlugin) is deliberate: it lets
 one mod folder, and therefore one release zip (see
-scripts/merge_and_package.py), carry all three platforms' binaries side by
+scripts/merge_and_package.py), carry every platform' binaries side by
 side without linux-amd64 and linux-arm64 colliding on the same lib<name>.so
 filename. Installing a mod into an actual game copy means flattening the
 one platform subdirectory you need into code/ directly (see README.md).
