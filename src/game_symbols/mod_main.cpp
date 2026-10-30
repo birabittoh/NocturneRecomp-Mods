@@ -98,9 +98,9 @@ constexpr uint32_t kVolumeLevelAddrVanilla = 0x828B0504u;
 //   +0x9c playtime_frames    20  (sub-second; not shown by the HUD's 00:22:44)
 //
 // The two STR/CON/INT/LCK copies were identical this session (no equipped
-// stat bonus active), so which one is "base" vs. "equipped/effective" isn't
-// disambiguated yet; re-test by equipping a stat-boosting item and seeing
-// which copy moves before a mod depends on telling them apart.
+// stat bonus active). Confirmed later with a +14 STR item equipped: copy #1
+// is the base value and copy #2 the total with equipment bonuses (the status
+// screen's "38+14" read 38 and 52).
 //
 // NOT found in this struct: "NEXT" (exp remaining to next level, shown on
 // the same screen) is presumably computed from a level/exp table rather
