@@ -1,29 +1,29 @@
-// player_stats mod: overlay (F5) mirroring the character screen's stats
+// player_stats mod: overlay (F6) mirroring the character screen's stats
 // live: HP/Heart/MP, STR/CON/INT/LCK, level, exp, gold, kills, rooms, and
 // playtime. Mirrors live by default; an "Edit mode" checkbox switches every
-// field to an editable input that writes straight back to guest memory.
+// field to an editable input that writes straight back to the game.
 //
-// Self-contained: the vanilla/TU addresses below (copied from
-// mods_src/game_symbols, see its mod_main.cpp for the full struct layout and
-// how it was found: an exact-pattern scan for the STR/CON/INT/LCK sequence
-// shown consecutively on the character screen) are registered under this
-// mod's own names, so the registry resolves vanilla vs TU without requiring
-// game_symbols. ROOMS lives at its own address, unrelated to the stats
-// struct (see game_symbols's +0x74 note for the field that was originally,
-// incorrectly, assumed to be it).
+// Nothing here knows a guest address: everything goes through the game's
+// Player API, rexmod/nocturne_player_api.h, copied verbatim from the game
+// repo's src/api/. The entry points are resolved out of the host executable
+// at load time and null-checked, so the mod still loads (and says what is
+// missing) on a host too old to have them.
 //
-// The "Level Up" button publishes "player.request_level_up"; NocturneRecomp
-// applies it from its own per-frame hook (mods can no longer override
-// recompiled functions).
+// STR/CON/INT/LCK are shown the way the status screen shows them, base plus
+// equipment bonus ("38+14"). Edit mode edits the base value; the bonus comes
+// from the equipment.
 //
-// A "Game Cleared" checkbox toggles the in-memory game-clear flag
-// (dword_83133AFC), which must be non-zero for Richter mode to activate
-// when the player name is "richter " (see sub_82395868).
+// The "Level Up" button calls NocturneRequestLevelUp, which runs the game's
+// own level-up routine on the guest thread's next frame.
+//
+// A "Game Cleared" checkbox toggles the in-memory game-clear flag, which must
+// be non-zero for Richter mode to activate when the player name is
+// "richter ".
 //
 // Two things shown on the same in-game screen are deliberately NOT shown
-// here because game_symbols wasn't able to find them yet: "NEXT" (exp to
-// next level) and "STATUS" (ailment indicator). See the offset table in
-// game_symbols/mod_main.cpp for the full investigation notes.
+// here because they haven't been found yet: "NEXT" (exp to next level) and
+// "STATUS" (ailment indicator). See the offset table in
+// game_symbols/mod_main.cpp for the investigation notes.
 
 #include <rex/system/mod_plugin.h>
 
@@ -34,106 +34,64 @@
 
 #include <imgui.h>
 
-#include <rex/memory/utils.h>
 #include <rex/runtime.h>
-#include <rex/system/kernel_state.h>
-#include <rex/system/mod_registry.h>
-#include <rex/system/xmemory.h>
 #include <rex/ui/imgui_dialog.h>
 #include <rex/ui/imgui_drawer.h>
 #include <rex/ui/keybinds.h>
 
+#include <rexmod/nocturne_player_api.h>
+
+#if defined(_WIN32)
+#include <windows.h>
+#else
+#include <dlfcn.h>
+#endif
+
 namespace {
 
-// Same addresses game_symbols publishes as "player.stats", "player.rooms" and
-// "game.clear_flag" (TU = vanilla - 0x240). Registered under private names so
-// they never collide with game_symbols' own registrations.
-constexpr uint32_t kPlayerStatsAddrVanilla = 0x83174B7Cu;
-constexpr uint32_t kPlayerStatsAddrTU = 0x8317493Cu;
-constexpr uint32_t kRoomsAddrVanilla = 0x83164F10u;
-constexpr uint32_t kRoomsAddrTU = 0x83164CD0u;
-constexpr uint32_t kGameClearFlagAddrVanilla = 0x83133AFCu;
-constexpr uint32_t kGameClearFlagAddrTU = 0x831338BCu;
+struct PlayerApi {
+  NocturneGetPlayerStatusFn get_status = nullptr;
+  NocturneSetPlayerStatFn set_stat = nullptr;
+  NocturneRequestLevelUpFn request_level_up = nullptr;
+  NocturneGetGameClearedFn game_cleared = nullptr;
+  NocturneSetGameClearedFn set_game_cleared = nullptr;
 
-// Offsets into the player-stats struct. Only the fields game_symbols was
-// able to identify are read here; see that mod's
-// mod_main.cpp for the full offset table, including the unidentified gaps.
-constexpr uint32_t kHpCurrentOffset = 0x00;
-constexpr uint32_t kHpMaxOffset = 0x04;
-constexpr uint32_t kHeartCurrentOffset = 0x08;
-constexpr uint32_t kHeartMaxOffset = 0x0c;
-constexpr uint32_t kMpCurrentOffset = 0x10;
-constexpr uint32_t kMpMaxOffset = 0x14;
-// First of two identical-so-far STR/CON/INT/LCK copies (+0x18 and +0x38);
-// see game_symbols/mod_main.cpp: which copy is "base" vs "equipped/
-// effective" isn't disambiguated yet, so this mirrors copy #1 arbitrarily.
-constexpr uint32_t kStrOffset = 0x18;
-constexpr uint32_t kConOffset = 0x1c;
-constexpr uint32_t kIntOffset = 0x20;
-constexpr uint32_t kLckOffset = 0x24;
-constexpr uint32_t kLevelOffset = 0x48;
-constexpr uint32_t kExpOffset = 0x4c;
-constexpr uint32_t kGoldOffset = 0x50;
-constexpr uint32_t kKillsOffset = 0x54;
-// NOT rooms; see game_symbols/mod_main.cpp's +0x74 note: this was
-// originally assumed to be the on-screen ROOMS counter because it happened
-// to read the same value, but writing to it (via this mod's now-removed
-// edit-mode field) didn't move ROOMS at all and instead made STR/CON/INT/
-// LCK jump around, consistent with some stat-growth/level table index
-// instead. Shown read-only, unlabeled as a stat, and never editable until
-// it's properly re-identified.
-constexpr uint32_t kUnidentifiedOffset0x74 = 0x74;
-constexpr uint32_t kPlaytimeHoursOffset = 0x90;
-constexpr uint32_t kPlaytimeMinutesOffset = 0x94;
-constexpr uint32_t kPlaytimeSecondsOffset = 0x98;
-constexpr uint32_t kSpanSize = kPlaytimeSecondsOffset + 4;  // covers every field read here
+  bool ok() const { return get_status && set_stat; }
+};
 
-uint32_t ReadGuestU32BE(rex::memory::Memory* memory, uint32_t guest_address) {
-  const uint8_t* host_address = memory->TranslateVirtual<const uint8_t*>(guest_address);
-  return rex::memory::load_and_swap<uint32_t>(host_address);
+void* HostSymbol(const char* symbol) {
+#if defined(_WIN32)
+  return reinterpret_cast<void*>(GetProcAddress(GetModuleHandleA(nullptr), symbol));
+#else
+  return dlsym(RTLD_DEFAULT, symbol);
+#endif
 }
 
-void WriteGuestU32BE(rex::memory::Memory* memory, uint32_t guest_address, uint32_t value) {
-  uint8_t* host_address = memory->TranslateVirtual<uint8_t*>(guest_address);
-  rex::memory::store_and_swap<uint32_t>(host_address, value);
+template <typename Fn>
+void Resolve(Fn& out, const char* symbol) {
+  out = reinterpret_cast<Fn>(HostSymbol(symbol));
 }
 
-std::string ToHex(uint64_t value, int width) {
-  char buf[32];
-  std::snprintf(buf, sizeof(buf), "%0*llX", width, static_cast<unsigned long long>(value));
-  return buf;
+PlayerApi LoadPlayerApi() {
+  PlayerApi api;
+  Resolve(api.get_status, "NocturneGetPlayerStatus");
+  Resolve(api.set_stat, "NocturneSetPlayerStat");
+  Resolve(api.request_level_up, "NocturneRequestLevelUp");
+  Resolve(api.game_cleared, "NocturneGetGameCleared");
+  Resolve(api.set_game_cleared, "NocturneSetGameCleared");
+  return api;
 }
 
 class PlayerStatsDialog : public rex::ui::ImGuiDialog {
  public:
-  PlayerStatsDialog(rex::ui::ImGuiDrawer* drawer, rex::Runtime* runtime)
-      : ImGuiDialog(drawer), runtime_(runtime) {
+  PlayerStatsDialog(rex::ui::ImGuiDrawer* drawer, const PlayerApi& api)
+      : ImGuiDialog(drawer), api_(api) {
     rex::ui::RegisterBind(
-        "bind_player_stats", "F5", "Toggle player stats overlay", [this] { visible_ = !visible_; },
+        "bind_player_stats", "F6", "Toggle player stats overlay", [this] { visible_ = !visible_; },
         [this] { return visible_; }, "Player Stats");
   }
 
   ~PlayerStatsDialog() override { rex::ui::UnregisterBind("bind_player_stats"); }
-
-  // Called once KernelState/the executable module are live (see
-  // PlayerStatsMod::OnModuleLaunched). Looks up the addresses registered in
-  // PlayerStatsMod::OnCreateDialogs; the registry resolves vanilla vs TU.
-  void ResolveAddress() {
-    if (runtime_ && runtime_->mod_registry()) {
-      if (auto addr = runtime_->mod_registry()->FindAddress("player_stats.stats")) {
-        addr_ = *addr;
-        addr_resolved_ = true;
-      }
-      if (auto addr = runtime_->mod_registry()->FindAddress("player_stats.rooms")) {
-        rooms_addr_ = *addr;
-        rooms_addr_resolved_ = true;
-      }
-      if (auto addr = runtime_->mod_registry()->FindAddress("player_stats.clear_flag")) {
-        clear_flag_addr_ = *addr;
-        clear_flag_addr_resolved_ = true;
-      }
-    }
-  }
 
  protected:
   void OnDraw(ImGuiIO& io) override {
@@ -148,184 +106,109 @@ class PlayerStatsDialog : public rex::ui::ImGuiDialog {
       return;
     }
 
-    auto* memory = runtime_ ? runtime_->memory() : nullptr;
-    auto* heap = (memory && addr_resolved_) ? memory->LookupHeap(addr_) : nullptr;
-    bool readable = heap && heap->QueryRangeAccess(addr_, addr_ + kSpanSize - 1) !=
-                                rex::memory::PageAccess::kNoAccess;
-
-    if (!addr_resolved_ || !memory || !readable) {
-      ImGui::TextDisabled("Start or load a game to view stats.");
+    if (!api_.ok()) {
+      ImGui::TextWrapped(
+          "This version of the game has no Player API (NocturneGetPlayerStatus). Update "
+          "NocturneRecomp.");
       ImGui::End();
       return;
     }
 
-    uint32_t hp_current = ReadGuestU32BE(memory, addr_ + kHpCurrentOffset);
-    uint32_t hp_max = ReadGuestU32BE(memory, addr_ + kHpMaxOffset);
-    uint32_t heart_current = ReadGuestU32BE(memory, addr_ + kHeartCurrentOffset);
-    uint32_t heart_max = ReadGuestU32BE(memory, addr_ + kHeartMaxOffset);
-    uint32_t mp_current = ReadGuestU32BE(memory, addr_ + kMpCurrentOffset);
-    uint32_t mp_max = ReadGuestU32BE(memory, addr_ + kMpMaxOffset);
-    uint32_t str = ReadGuestU32BE(memory, addr_ + kStrOffset);
-    uint32_t con = ReadGuestU32BE(memory, addr_ + kConOffset);
-    uint32_t intelligence = ReadGuestU32BE(memory, addr_ + kIntOffset);
-    uint32_t lck = ReadGuestU32BE(memory, addr_ + kLckOffset);
-    uint32_t level = ReadGuestU32BE(memory, addr_ + kLevelOffset);
-    uint32_t exp = ReadGuestU32BE(memory, addr_ + kExpOffset);
-    uint32_t gold = ReadGuestU32BE(memory, addr_ + kGoldOffset);
-    uint32_t kills = ReadGuestU32BE(memory, addr_ + kKillsOffset);
-    uint32_t unidentified_0x74 = ReadGuestU32BE(memory, addr_ + kUnidentifiedOffset0x74);
-    uint32_t playtime_hours = ReadGuestU32BE(memory, addr_ + kPlaytimeHoursOffset);
-    uint32_t playtime_minutes = ReadGuestU32BE(memory, addr_ + kPlaytimeMinutesOffset);
-    uint32_t playtime_seconds = ReadGuestU32BE(memory, addr_ + kPlaytimeSecondsOffset);
-
-    // ROOMS is a separate address from the player-stats struct
-    // above (see game_symbols/mod_main.cpp), so it gets its own resolved-ness
-    // and readability check rather than sharing addr_'s.
-    bool rooms_readable = false;
-    uint32_t rooms = 0;
-    if (rooms_addr_resolved_) {
-      auto* rooms_heap = memory->LookupHeap(rooms_addr_);
-      rooms_readable = rooms_heap && rooms_heap->QueryRangeAccess(rooms_addr_, rooms_addr_ + 3) !=
-                                          rex::memory::PageAccess::kNoAccess;
-      if (rooms_readable) {
-        rooms = ReadGuestU32BE(memory, rooms_addr_);
-      }
+    NocturnePlayerStatus status;
+    if (api_.get_status(&status) != NOCTURNE_PLAYER_OK) {
+      ImGui::TextDisabled("Start or load a game to view stats.");
+      ImGui::End();
+      return;
     }
-
-    clear_flag_readable_ = false;
-    clear_flag_val_ = 0;
-    if (clear_flag_addr_resolved_) {
-      auto* flag_heap = memory->LookupHeap(clear_flag_addr_);
-      clear_flag_readable_ = flag_heap &&
-                             flag_heap->QueryRangeAccess(clear_flag_addr_, clear_flag_addr_ + 3) !=
-                                 rex::memory::PageAccess::kNoAccess;
-      if (clear_flag_readable_) {
-        clear_flag_val_ = ReadGuestU32BE(memory, clear_flag_addr_);
-      }
-    }
+    const NocturnePlayerStats& st = status.stats;
+    int cleared = api_.game_cleared ? api_.game_cleared() : NOCTURNE_PLAYER_ERR_UNAVAILABLE;
 
     bool was_edit_mode = edit_mode_;
     ImGui::Checkbox("Edit mode", &edit_mode_);
     if (edit_mode_ && !was_edit_mode) {
-      SeedEditFields(hp_current, hp_max, heart_current, heart_max, mp_current, mp_max, str, con,
-                    intelligence, lck, level, exp, gold, kills, playtime_hours,
-                    playtime_minutes, playtime_seconds);
-      if (rooms_readable) {
-        edit_rooms_ = static_cast<int>(rooms);
+      // Seeded once on the way into edit mode, not every frame, so typing into
+      // a field doesn't get stomped by the next frame's live re-read.
+      edit_ = st;
+    }
+    if (api_.request_level_up) {
+      ImGui::SameLine();
+      ImGui::BeginDisabled(st.level >= NOCTURNE_LEVEL_MAX);
+      if (ImGui::Button("Level Up")) {
+        api_.request_level_up();
       }
+      ImGui::EndDisabled();
     }
-    ImGui::SameLine();
-    ImGui::BeginDisabled(level >= 99);
-    if (ImGui::Button("Level Up")) {
-      // NocturneRecomp owns the level-up (it needs a live guest context): it
-      // queues this request and applies it on its next per-frame tick.
-      runtime_->mod_registry()->Publish("player.request_level_up", {});
-    }
-    ImGui::EndDisabled();
     ImGui::Separator();
 
     if (!edit_mode_) {
-      const float kValueX = 100.0f;
-      char hp_value[32];
-      std::snprintf(hp_value, sizeof(hp_value), "%4u/%-4u", hp_current, hp_max);
-      ImGui::Text("HP");
-      ImGui::SameLine(kValueX);
-      ImGui::TextUnformatted(hp_value);
-      ImGui::SameLine();
-      ImGui::BeginDisabled(hp_current >= hp_max);
-      if (ImGui::Button("Max##hp")) {
-        WriteGuestU32BE(memory, addr_ + kHpCurrentOffset, hp_max);
-      }
-      ImGui::EndDisabled();
-
-      char mp_value[32];
-      std::snprintf(mp_value, sizeof(mp_value), "%4u/%-4u", mp_current, mp_max);
-      ImGui::Text("MP");
-      ImGui::SameLine(kValueX);
-      ImGui::TextUnformatted(mp_value);
-      ImGui::SameLine();
-      ImGui::BeginDisabled(mp_current >= mp_max);
-      if (ImGui::Button("Max##mp")) {
-        WriteGuestU32BE(memory, addr_ + kMpCurrentOffset, mp_max);
-      }
-      ImGui::EndDisabled();
-
-      char heart_value[32];
-      std::snprintf(heart_value, sizeof(heart_value), "%4u/%-4u", heart_current, heart_max);
-      ImGui::Text("HEART");
-      ImGui::SameLine(kValueX);
-      ImGui::TextUnformatted(heart_value);
-      ImGui::SameLine();
-      ImGui::BeginDisabled(heart_current >= heart_max);
-      if (ImGui::Button("Max##heart")) {
-        WriteGuestU32BE(memory, addr_ + kHeartCurrentOffset, heart_max);
-      }
-      ImGui::EndDisabled();
+      DrawPool("HP", "Max##hp", st.hp, st.hp_max, NOCTURNE_STAT_HP);
+      DrawPool("MP", "Max##mp", st.mp, st.mp_max, NOCTURNE_STAT_MP);
+      DrawPool("HEART", "Max##heart", st.hearts, st.hearts_max, NOCTURNE_STAT_HEARTS);
       ImGui::Separator();
-      ImGui::Text("STR %u  CON %u  INT %u  LCK %u", str, con, intelligence, lck);
+      DrawAttribute("STR", st.str_base, st.str);
+      ImGui::SameLine(140);
+      DrawAttribute("CON", st.con_base, st.con);
+      DrawAttribute("INT", st.int_base, st.intl);
+      ImGui::SameLine(140);
+      DrawAttribute("LCK", st.lck_base, st.lck);
       ImGui::Separator();
-      ImGui::Text("LEVEL %u", level);
-      ImGui::Text("EXP   %u", exp);
-      ImGui::Text("GOLD  %u", gold);
-      ImGui::Text("KILLS %u", kills);
-      if (rooms_readable) {
-        double completion_percent = rooms * 100.0 / 942.0;
-        ImGui::Text("ROOMS %u (%.1f%%)", rooms, completion_percent);
-      }
-      ImGui::Text("TIME  %02u:%02u:%02u", playtime_hours, playtime_minutes, playtime_seconds);
-      ImGui::Separator();
-      if (clear_flag_readable_) {
-        ImGui::Text("CLEAR %s", clear_flag_val_ ? "YES" : "NO");
+      ImGui::Text("LEVEL %d", st.level);
+      ImGui::Text("EXP   %d", st.exp);
+      ImGui::Text("GOLD  %d", st.gold);
+      ImGui::Text("KILLS %d", st.kills);
+      ImGui::Text("ROOMS %d (%.1f%%)", st.rooms, st.rooms * 100.0 / NOCTURNE_ROOM_TOTAL);
+      ImGui::Text("TIME  %02d:%02d:%02d", st.play_hours, st.play_minutes, st.play_seconds);
+      if (cleared >= 0) {
+        ImGui::Separator();
+        ImGui::Text("CLEAR %s", cleared ? "YES" : "NO");
       }
     } else {
       ImGui::TextUnformatted("HP");
       ImGui::SameLine(60);
-      EditableField(memory, "##hp_current", kHpCurrentOffset, &edit_hp_current_);
+      EditableField("##hp_current", NOCTURNE_STAT_HP, &edit_.hp);
       ImGui::SameLine();
-      EditableField(memory, "##hp_max", kHpMaxOffset, &edit_hp_max_);
+      EditableField("##hp_max", NOCTURNE_STAT_HP_MAX, &edit_.hp_max);
 
       ImGui::TextUnformatted("MP");
       ImGui::SameLine(60);
-      EditableField(memory, "##mp_current", kMpCurrentOffset, &edit_mp_current_);
+      EditableField("##mp_current", NOCTURNE_STAT_MP, &edit_.mp);
       ImGui::SameLine();
-      EditableField(memory, "##mp_max", kMpMaxOffset, &edit_mp_max_);
+      EditableField("##mp_max", NOCTURNE_STAT_MP_MAX, &edit_.mp_max);
 
       ImGui::TextUnformatted("HEART");
       ImGui::SameLine(60);
-      EditableField(memory, "##heart_current", kHeartCurrentOffset, &edit_heart_current_);
+      EditableField("##heart_current", NOCTURNE_STAT_HEARTS, &edit_.hearts);
       ImGui::SameLine();
-      EditableField(memory, "##heart_max", kHeartMaxOffset, &edit_heart_max_);
+      EditableField("##heart_max", NOCTURNE_STAT_HEARTS_MAX, &edit_.hearts_max);
 
       ImGui::Separator();
 
-      EditableField(memory, "STR", kStrOffset, &edit_str_);
+      EditableField("STR", NOCTURNE_STAT_STR_BASE, &edit_.str_base);
       ImGui::SameLine();
-      EditableField(memory, "CON", kConOffset, &edit_con_);
-      EditableField(memory, "INT", kIntOffset, &edit_int_);
+      EditableField("CON", NOCTURNE_STAT_CON_BASE, &edit_.con_base);
+      EditableField("INT", NOCTURNE_STAT_INT_BASE, &edit_.int_base);
       ImGui::SameLine();
-      EditableField(memory, "LCK", kLckOffset, &edit_lck_);
+      EditableField("LCK", NOCTURNE_STAT_LCK_BASE, &edit_.lck_base);
 
       ImGui::Separator();
 
-      EditableField(memory, "LEVEL", kLevelOffset, &edit_level_);
-      EditableField(memory, "EXP", kExpOffset, &edit_exp_);
-      EditableField(memory, "GOLD", kGoldOffset, &edit_gold_);
-      EditableField(memory, "KILLS", kKillsOffset, &edit_kills_);
-      if (rooms_readable) {
-        EditableFieldAbs(memory, "ROOMS", rooms_addr_, &edit_rooms_);
-      }
+      EditableField("LEVEL", NOCTURNE_STAT_LEVEL, &edit_.level);
+      EditableField("EXP", NOCTURNE_STAT_EXP, &edit_.exp);
+      EditableField("GOLD", NOCTURNE_STAT_GOLD, &edit_.gold);
+      EditableField("KILLS", NOCTURNE_STAT_KILLS, &edit_.kills);
+      EditableField("ROOMS", NOCTURNE_STAT_ROOMS, &edit_.rooms);
 
       ImGui::TextUnformatted("TIME");
       ImGui::SameLine(60);
-      EditableField(memory, "##playtime_h", kPlaytimeHoursOffset, &edit_playtime_hours_);
+      EditableField("##playtime_h", NOCTURNE_STAT_PLAY_HOURS, &edit_.play_hours);
       ImGui::SameLine();
-      EditableField(memory, "##playtime_m", kPlaytimeMinutesOffset, &edit_playtime_minutes_);
+      EditableField("##playtime_m", NOCTURNE_STAT_PLAY_MINUTES, &edit_.play_minutes);
       ImGui::SameLine();
-      EditableField(memory, "##playtime_s", kPlaytimeSecondsOffset, &edit_playtime_seconds_);
-      if (clear_flag_readable_) {
-        bool cleared = (clear_flag_val_ != 0);
-        if (ImGui::Checkbox("CLEAR", &cleared)) {
-          WriteGuestU32BE(memory, clear_flag_addr_, cleared ? 1u : 0u);
+      EditableField("##playtime_s", NOCTURNE_STAT_PLAY_SECONDS, &edit_.play_seconds);
+      if (cleared >= 0 && api_.set_game_cleared) {
+        bool is_cleared = cleared != 0;
+        if (ImGui::Checkbox("CLEAR", &is_cleared)) {
+          api_.set_game_cleared(is_cleared ? 1 : 0);
         }
       }
     }
@@ -334,113 +217,62 @@ class PlayerStatsDialog : public rex::ui::ImGuiDialog {
   }
 
  private:
-  // Seeds every edit_* field from the just-read live values. Called once
-  // on the transition into edit mode, not every frame, so typing into a
-  // field doesn't get stomped by the next frame's live re-read.
-  void SeedEditFields(uint32_t hp_current, uint32_t hp_max, uint32_t heart_current,
-                      uint32_t heart_max, uint32_t mp_current, uint32_t mp_max, uint32_t str,
-                      uint32_t con, uint32_t intelligence, uint32_t lck, uint32_t level,
-                      uint32_t exp, uint32_t gold, uint32_t kills, uint32_t playtime_hours,
-                      uint32_t playtime_minutes, uint32_t playtime_seconds) {
-    edit_hp_current_ = static_cast<int>(hp_current);
-    edit_hp_max_ = static_cast<int>(hp_max);
-    edit_heart_current_ = static_cast<int>(heart_current);
-    edit_heart_max_ = static_cast<int>(heart_max);
-    edit_mp_current_ = static_cast<int>(mp_current);
-    edit_mp_max_ = static_cast<int>(mp_max);
-    edit_str_ = static_cast<int>(str);
-    edit_con_ = static_cast<int>(con);
-    edit_int_ = static_cast<int>(intelligence);
-    edit_lck_ = static_cast<int>(lck);
-    edit_level_ = static_cast<int>(level);
-    edit_exp_ = static_cast<int>(exp);
-    edit_gold_ = static_cast<int>(gold);
-    edit_kills_ = static_cast<int>(kills);
-    edit_playtime_hours_ = static_cast<int>(playtime_hours);
-    edit_playtime_minutes_ = static_cast<int>(playtime_minutes);
-    edit_playtime_seconds_ = static_cast<int>(playtime_seconds);
-  }
-
-  // Editable int field that writes straight back to guest memory on every
-  // change (InputInt returns true on each keystroke that changes the value,
-  // same immediate-apply convention as mods_src/graphics_settings's custom
-  // width/height fields). Negative input is clamped to 0 before writing;
-  // the field is a uint32 in memory.
-  void EditableField(rex::memory::Memory* memory, const char* label, uint32_t offset,
-                      int* edit_value) {
-    EditableFieldAbs(memory, label, addr_ + offset, edit_value);
-  }
-
-  // Same as EditableField, but for an address that isn't an offset into the
-  // player-stats struct, e.g. ROOMS, which is its own
-  // standalone address elsewhere in memory (see game_symbols/mod_main.cpp).
-  void EditableFieldAbs(rex::memory::Memory* memory, const char* label, uint32_t guest_address,
-                        int* edit_value) {
-    ImGui::SetNextItemWidth(90);
-    if (ImGui::InputInt(label, edit_value)) {
-      *edit_value = std::max(*edit_value, 0);
-      WriteGuestU32BE(memory, guest_address, static_cast<uint32_t>(*edit_value));
+  // "STR 38+14": base, then the equipment bonus when there is one.
+  void DrawAttribute(const char* label, int32_t base, int32_t total) {
+    int32_t bonus = total - base;
+    if (bonus == 0) {
+      ImGui::Text("%-5s %d", label, base);
+    } else {
+      ImGui::Text("%-5s %d%+d", label, base, bonus);
     }
   }
 
-  rex::Runtime* runtime_ = nullptr;
+  // "current/max" with a button that tops current up to max.
+  void DrawPool(const char* label, const char* button, int32_t current, int32_t max,
+                int current_stat) {
+    const float kValueX = 100.0f;
+    char value[32];
+    std::snprintf(value, sizeof(value), "%4d/%-4d", current, max);
+    ImGui::Text("%s", label);
+    ImGui::SameLine(kValueX);
+    ImGui::TextUnformatted(value);
+    ImGui::SameLine();
+    ImGui::BeginDisabled(current >= max);
+    if (ImGui::Button(button)) {
+      api_.set_stat(current_stat, max);
+    }
+    ImGui::EndDisabled();
+  }
+
+  // Editable int field that writes straight back on every change (InputInt
+  // returns true on each keystroke that changes the value, same
+  // immediate-apply convention as graphics_settings's custom width/height
+  // fields). Negative input is clamped to 0, which the API requires.
+  void EditableField(const char* label, int stat, int32_t* edit_value) {
+    ImGui::SetNextItemWidth(90);
+    int value = *edit_value;
+    if (ImGui::InputInt(label, &value)) {
+      *edit_value = std::max(value, 0);
+      api_.set_stat(stat, *edit_value);
+    }
+  }
+
+  const PlayerApi& api_;
   bool visible_ = false;
-
-  bool addr_resolved_ = false;
-  uint32_t addr_ = 0;
-
-  bool rooms_addr_resolved_ = false;
-  uint32_t rooms_addr_ = 0;
-
-  bool clear_flag_addr_resolved_ = false;
-  uint32_t clear_flag_addr_ = 0;
-  bool clear_flag_readable_ = false;
-  uint32_t clear_flag_val_ = 0;
-
   bool edit_mode_ = false;
-  int edit_hp_current_ = 0;
-  int edit_hp_max_ = 0;
-  int edit_heart_current_ = 0;
-  int edit_heart_max_ = 0;
-  int edit_mp_current_ = 0;
-  int edit_mp_max_ = 0;
-  int edit_str_ = 0;
-  int edit_con_ = 0;
-  int edit_int_ = 0;
-  int edit_lck_ = 0;
-  int edit_level_ = 0;
-  int edit_exp_ = 0;
-  int edit_gold_ = 0;
-  int edit_kills_ = 0;
-  int edit_rooms_ = 0;
-  int edit_playtime_hours_ = 0;
-  int edit_playtime_minutes_ = 0;
-  int edit_playtime_seconds_ = 0;
+  NocturnePlayerStats edit_{};
 };
 
 class PlayerStatsMod : public rex::system::IModPlugin {
  public:
-  explicit PlayerStatsMod(rex::Runtime* runtime) : runtime_(runtime) {}
+  PlayerStatsMod() : api_(LoadPlayerApi()) {}
 
   void OnCreateDialogs(rex::ui::ImGuiDrawer* drawer) override {
-    if (runtime_ && runtime_->mod_registry()) {
-      auto* registry = runtime_->mod_registry();
-      registry->RegisterAddress("player_stats.stats", kPlayerStatsAddrVanilla, kPlayerStatsAddrTU);
-      registry->RegisterAddress("player_stats.rooms", kRoomsAddrVanilla, kRoomsAddrTU);
-      registry->RegisterAddress("player_stats.clear_flag", kGameClearFlagAddrVanilla,
-                                kGameClearFlagAddrTU);
-    }
-    dialog_ = std::make_unique<PlayerStatsDialog>(drawer, runtime_);
-  }
-
-  void OnModuleLaunched() override {
-    if (dialog_) {
-      dialog_->ResolveAddress();
-    }
+    dialog_ = std::make_unique<PlayerStatsDialog>(drawer, api_);
   }
 
  private:
-  rex::Runtime* runtime_ = nullptr;
+  PlayerApi api_;
   std::unique_ptr<PlayerStatsDialog> dialog_;
 };
 
@@ -455,5 +287,5 @@ extern "C" REX_MOD_PLUGIN_EXPORT rex::system::IModPlugin* rex_mod_create(
   if (abi_version != rex::system::kModPluginAbiVersion || !ctx) {
     return nullptr;
   }
-  return new PlayerStatsMod(ctx->runtime);
+  return new PlayerStatsMod();
 }
