@@ -21,15 +21,15 @@ jobs:
       fail-fast: false
       matrix:
         platform:
-          - windows-x64
-          - linux-x64
+          - win-amd64
+          - linux-amd64
           - linux-arm64
         include:
-          - platform: windows-x64
+          - platform: win-amd64
             runner: windows-latest
             sdk_subdir: win-amd64
 
-          - platform: linux-x64
+          - platform: linux-amd64
             runner: ubuntu-latest
             sdk_subdir: linux-amd64
 
@@ -42,7 +42,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install dependencies (Linux)
-        if: matrix.platform == 'linux-x64' || matrix.platform == 'linux-arm64'
+        if: matrix.platform == 'linux-amd64' || matrix.platform == 'linux-arm64'
         run: |
           wget -qO- https://apt.llvm.org/llvm.sh | sudo bash -s -- 20
           sudo apt-get install -y ninja-build
@@ -50,7 +50,7 @@ jobs:
           sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-20 200
 
       - name: Install LLVM, CMake, Ninja (Windows)
-        if: matrix.platform == 'windows-x64'
+        if: matrix.platform == 'win-amd64'
         run: choco install llvm cmake ninja -y
 
       - name: Set up sccache
@@ -104,8 +104,8 @@ jobs:
         shell: bash
         run: |
           python scripts/merge_and_package.py \
-            --input raw/raw-mods-windows-x64 \
-            --input raw/raw-mods-linux-x64 \
+            --input raw/raw-mods-win-amd64 \
+            --input raw/raw-mods-linux-amd64 \
             --input raw/raw-mods-linux-arm64 \
             --output pkg \
             --write-mod-list mods.json \

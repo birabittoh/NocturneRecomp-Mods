@@ -23,13 +23,13 @@ python scripts/make_mods.py
 ```
 
 `make_mods.py` builds every `src/<name>/` project for the host's own
-platform by default (`--target` to pick one of `windows-x64`, `linux-x64`,
+platform by default (`--target` to pick one of `win-amd64`, `linux-amd64`,
 `linux-arm64` explicitly, repeatable) and assembles the result into
 `mods/<name>/code/<platform>/`. Pass `--mod <name>` (repeatable) to build a
 subset, `--package` to also zip each mod individually.
 
-Binaries live under `code/<platform>/` (`code/windows-x64/<name>.dll`,
-`code/linux-x64/lib<name>.so`, `code/linux-arm64/lib<name>.so`) rather than
+Binaries live under `code/<platform>/` (`code/win-amd64/<name>.dll`,
+`code/linux-amd64/lib<name>.so`, `code/linux-arm64/lib<name>.so`) rather than
 flat in `code/`, so one mod folder can carry all three platforms' binaries
 at once without the two `.so` builds colliding on the same filename.
 NocturneRecomp's mod loader checks `code/<platform>/<stem>...` (matching
