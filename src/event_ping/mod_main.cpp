@@ -4,8 +4,8 @@
 // a "sample.ping" event roughly once a second. Pairs with event_pong (see
 // mods_src/event_pong/mod_main.cpp), which subscribes to this event. Together
 // they demonstrate the Subscribe/Publish and RegisterTick/DispatchTick sides
-// of the shared mod registry that mods_src/game_symbols/mods_src/ui_color
-// don't exercise (those two only use RegisterAddress/FindAddress).
+// of the shared mod registry that src/game_symbols doesn't exercise (it only
+// uses RegisterAddress/FindAddress).
 //
 // RegisterTick callbacks run on the command-processor thread (see
 // DispatchTick's doc comment in mod_registry.h), not the render/UI thread.
